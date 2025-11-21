@@ -1,5 +1,6 @@
-import { deleteTask, getTask as getTaskById, setTaskCompleted, updateTask } from "@/app/database/database";
+import { deleteTask, getTask as getTaskById, updateTask } from "@/app/database/database";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { updateAvailabilityWithFeedback } from "@/utils/availabilityFeedback";
 import { Picker } from "@react-native-picker/picker";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
@@ -155,16 +156,27 @@ export default function EditTaskScreen() {
       return;
     }
 
-    await updateTask({
-      id: taskId,
-      title,
-      notes: description,
-      difficulty,
-      due_date: dueDate,
-    });
-    await setTaskCompleted(taskId, completed);
+    try {
+      await updateTask({
+        id: taskId,
+        title,
+        notes: description,
+        difficulty,
+        due_date: dueDate,
+      });
 
-    router.back();
+      const updated = await updateAvailabilityWithFeedback(taskId, completed, { silentSuccess: true });
+      if (!updated) return;
+
+      Alert.alert(
+        "Changes saved",
+        completed ? "Task updated and marked complete." : "Task updated and left open.",
+        [{ text: "OK", onPress: () => router.back() }]
+      );
+    } catch (error) {
+      console.error("Failed to save task", error);
+      Alert.alert("Save failed", "Couldn't update this task. Please try again.");
+    }
   };
 
   // -------------------------

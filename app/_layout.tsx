@@ -46,6 +46,42 @@ export default function RootLayout() {
             }}
           />
 
+          {/* COMPLETED TASKS */}
+          <Stack.Screen
+            name="completed-tasks"
+            options={{
+              title: "Completed Tasks",
+              headerBackTitle: "",
+            }}
+          />
+
+          {/* DIFFICULTY LIST */}
+          <Stack.Screen
+            name="tasks-difficulty"
+            options={{
+              title: "",
+              headerBackTitle: "",
+            }}
+          />
+
+          {/* FILTERED TASKS */}
+          <Stack.Screen
+            name="tasks-filter"
+            options={{
+              title: "",
+              headerBackTitle: "",
+            }}
+          />
+
+          {/* PLAN SECTION */}
+          <Stack.Screen
+            name="plan-section"
+            options={{
+              title: "",
+              headerBackTitle: "",
+            }}
+          />
+
           {/* MODAL */}
           <Stack.Screen
             name="modal"

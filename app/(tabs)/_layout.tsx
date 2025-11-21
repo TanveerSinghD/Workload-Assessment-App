@@ -2,6 +2,7 @@ import { BlurView } from "expo-blur";
 import { Tabs } from "expo-router";
 import React, { useRef } from "react";
 import { Animated, LayoutChangeEvent } from "react-native";
+import { useNavigation } from "@react-navigation/native";
 
 import { HapticTab } from "@/components/haptic-tab";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -10,6 +11,7 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 export default function TabLayout() {
   const colorScheme = useColorScheme();
   const dark = colorScheme === "dark";
+  const navigation = useNavigation();
 
   // 🔵 Sliding bubble animation
   const sliderX = useRef(new Animated.Value(0)).current;
@@ -26,6 +28,19 @@ export default function TabLayout() {
 
     // ⭐ Centre bubble on Home immediately (no drift)
     sliderX.setValue(ITEM_WIDTH / 2 - 27.5);
+  };
+
+  const routes = ["index/index", "tasks/tasks", "planner/planner", "calendar/calendar", "settings/settings"];
+
+  // Allow dragging across the tab bar to move the bubble and navigate on release
+  const handleDrag = (locationX: number, release = false) => {
+    if (!tabWidth.current) return;
+    const ITEM_WIDTH = tabWidth.current / TABS;
+    const clamped = Math.max(0, Math.min(TABS - 1, Math.floor(locationX / ITEM_WIDTH)));
+    sliderX.setValue(clamped * ITEM_WIDTH + ITEM_WIDTH / 2 - 27.5);
+    if (release) {
+      navigation.navigate(routes[clamped] as never);
+    }
   };
 
   // 🔧 Animate bubble when switching tabs
@@ -62,6 +77,9 @@ export default function TabLayout() {
               overflow: "hidden",
               justifyContent: "center",
             }}
+            onStartShouldSetResponder={() => true}
+            onResponderMove={(e) => handleDrag(e.nativeEvent.locationX)}
+            onResponderRelease={(e) => handleDrag(e.nativeEvent.locationX, true)}
           >
             {/* 🔵 Bubble behind active tab */}
             <Animated.View

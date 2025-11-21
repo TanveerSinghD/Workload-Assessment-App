@@ -98,3 +98,8 @@ export async function duplicateTask(id: number) {
 export async function deleteAllTasks() {
   await db.runAsync("DELETE FROM tasks");
 }
+
+// Delete only completed tasks
+export async function deleteCompletedTasks() {
+  await db.runAsync("DELETE FROM tasks WHERE completed = 1");
+}

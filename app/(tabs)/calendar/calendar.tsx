@@ -1,9 +1,12 @@
 import { getTasks } from "@/app/database/database";
 import { useColorScheme } from "@/hooks/use-color-scheme";
-import { Link, useFocusEffect } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
-import { Modal, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { updateAvailabilityWithFeedback } from "@/utils/availabilityFeedback";
+import { BlurView } from "expo-blur";
+import { Link, router, useFocusEffect } from "expo-router";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { Alert, Modal, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Calendar } from "react-native-calendars";
+import { useScrollToTop } from "@react-navigation/native";
 
 type Task = {
   id: number;
@@ -11,13 +14,19 @@ type Task = {
   notes: string | null;
   difficulty: "easy" | "medium" | "hard";
   due_date: string;
+  completed?: number;
 };
 
 export default function CalendarScreen() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
+  const scrollRef = useRef<ScrollView>(null);
+  useScrollToTop(scrollRef);
+  const [refreshing, setRefreshing] = useState(false);
 
   const [assignments, setAssignments] = useState<Task[]>([]);
+  const [difficulty, setDifficulty] = useState<"all" | "easy" | "medium" | "hard">("all");
+  const [showCompleted, setShowCompleted] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
   const today = new Date();
@@ -30,14 +39,20 @@ export default function CalendarScreen() {
   const [showMonthPicker, setShowMonthPicker] = useState(false);
 
   // LIVE REFRESH WHEN SCREEN FOCUSES
+  const loadTasks = useCallback(async () => {
+    try {
+      setRefreshing(true);
+      const data = (await getTasks()) as Task[];
+      setAssignments(data);
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
-      async function load() {
-        const data = (await getTasks()) as Task[];
-        setAssignments(data);
-      }
-      load();
-    }, [])
+      loadTasks();
+    }, [loadTasks])
   );
 
   const months = [
@@ -52,39 +67,64 @@ export default function CalendarScreen() {
     hard: "#FF453A",
   };
 
-  // Marked dates
+  const filteredAssignments = useMemo(() => {
+    return assignments.filter((t) => {
+      if (!showCompleted && t.completed) return false;
+      if (difficulty !== "all" && t.difficulty !== difficulty) return false;
+      return true;
+    });
+  }, [assignments, difficulty, showCompleted]);
+
   const markedDates = useMemo(() => {
     const marks: Record<string, any> = {};
 
-    assignments.forEach((task) => {
+    filteredAssignments.forEach((task) => {
       const d = task.due_date;
       if (!d) return;
 
-      if (d === todayStr) return;
-
-      let color = "#0A84FF"; // future
-      if (d < todayStr) color = "#A1A1A1"; // past
+      const dots = marks[d]?.dots ? [...marks[d].dots] : [];
+      const dotColor = difficultyDot[task.difficulty];
+      if (!dots.find((dot: any) => dot.key === task.difficulty)) {
+        dots.push({ key: task.difficulty, color: dotColor });
+      }
 
       marks[d] = {
-        selected: true,
-        selectedColor: color,
-        selectedTextColor: "#FFFFFF",
+        ...marks[d],
+        dots,
       };
     });
 
-    // TODAY = GREEN
+    if (selectedDate) {
+      marks[selectedDate] = {
+        ...(marks[selectedDate] || {}),
+        selected: true,
+        selectedColor: "#0A84FF55",
+      };
+    }
+
     marks[todayStr] = {
+      ...(marks[todayStr] || {}),
       selected: true,
       selectedColor: "#34C759",
       selectedTextColor: "#FFFFFF",
     };
 
     return marks;
-  }, [assignments, todayStr]);
+  }, [filteredAssignments, difficultyDot, selectedDate, todayStr]);
 
-  const assignmentsForDay = selectedDate
-    ? assignments.filter((a) => a.due_date === selectedDate)
-    : [];
+  const assignmentsForDay = useMemo(() => {
+    if (selectedDate) {
+      return filteredAssignments.filter((a) => a.due_date === selectedDate);
+    }
+    // agenda-style view: next 7 days (including today)
+    const next7 = new Date(today);
+    next7.setDate(next7.getDate() + 7);
+    const next7Str = next7.toISOString().split("T")[0];
+
+    return filteredAssignments
+      .filter((a) => a.due_date && a.due_date >= todayStr && a.due_date <= next7Str)
+      .sort((a, b) => a.due_date.localeCompare(b.due_date));
+  }, [filteredAssignments, selectedDate, today, todayStr]);
 
   const currentMonthStr = `${year}-${String(month).padStart(2, "0")}-01`;
 
@@ -112,6 +152,39 @@ export default function CalendarScreen() {
     } else setMonth((m) => m + 1);
   }
 
+  const handleToggleComplete = useCallback(
+    async (task: Task) => {
+      const nextState = !task.completed;
+      const updated = await updateAvailabilityWithFeedback(task.id, nextState);
+      if (updated) {
+        await loadTasks();
+      }
+    },
+    [loadTasks]
+  );
+
+  const handleQuickActions = useCallback(
+    (task: Task) => {
+      Alert.alert(
+        "Quick actions",
+        task.title,
+        [
+          {
+            text: task.completed ? "Mark as incomplete" : "Mark as complete",
+            onPress: () => handleToggleComplete(task),
+          },
+          {
+            text: "View / Edit",
+            onPress: () => router.push({ pathname: "/edit-task", params: { id: String(task.id) } }),
+          },
+          { text: "Cancel", style: "cancel" },
+        ],
+        { userInterfaceStyle: isDark ? "dark" : "light" }
+      );
+    },
+    [handleToggleComplete, isDark]
+  );
+
   return (
     <View
       style={[
@@ -119,86 +192,149 @@ export default function CalendarScreen() {
         { backgroundColor: isDark ? "#1C1C1E" : "#FFFFFF" },
       ]}
     >
-      {/* HEADER */}
-      <View style={styles.headerRow}>
-        <TouchableOpacity onPress={goPrevMonth}>
-          <Text style={[styles.arrow, { color: isDark ? "#FFF" : "#007AFF" }]}>
-            {"<"}
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={() => {
-            resetSelected();
-            setShowYearPicker(true);
-          }}
-        >
-          <Text
-            style={[
-              styles.headerText,
-              { color: isDark ? "#FFF" : "#007AFF" },
-            ]}
-          >
-            {year}
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={() => {
-            resetSelected();
-            setShowMonthPicker(true);
-          }}
-        >
-          <Text
-            style={[
-              styles.headerText,
-              { color: isDark ? "#FFF" : "#007AFF" },
-            ]}
-          >
-            {months[month - 1]}
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={goNextMonth}>
-          <Text style={[styles.arrow, { color: isDark ? "#FFF" : "#007AFF" }]}>
-            {">"}
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* CALENDAR */}
-      <Calendar
-        key={currentMonthStr}
-        current={currentMonthStr}
-        onDayPress={(day) => setSelectedDate(day.dateString)}
-
-        /* ⭐ FIXED: updates header when swiping months */
-        onMonthChange={(date) => {
-          setYear(date.year);
-          setMonth(date.month);
-          resetSelected();
-        }}
-
-        markedDates={markedDates}
-        hideExtraDays={true}
-        hideArrows
-        enableSwipeMonths
-        renderHeader={() => null}
-        theme={{
-          calendarBackground: isDark ? "#1C1C1E" : "#FFFFFF",
-          dayTextColor: isDark ? "#FFFFFF" : "#000000",
-          textDisabledColor: isDark ? "#666666" : "#CCCCCC",
-          textSectionTitleColor: isDark ? "#B0B0B0" : "#999999",
-          textDayFontSize: 16,
-        }}
+      <BlurView
+        intensity={40}
+        tint={isDark ? "dark" : "light"}
+        style={styles.blurHeader}
       />
+      <View style={styles.blurFade} />
 
-      {/* TASK LIST */}
-      <View style={styles.taskListContainer}>
-        {selectedDate ? (
-          assignmentsForDay.length === 0 ? (
+      <ScrollView
+        ref={scrollRef}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={loadTasks}
+            tintColor={isDark ? "#FFF" : "#000"}
+          />
+        }
+      >
+        {/* HEADER */}
+        <View style={styles.headerRow}>
+          <TouchableOpacity onPress={goPrevMonth}>
+            <Text style={[styles.arrow, { color: isDark ? "#FFF" : "#007AFF" }]}>
+              {"<"}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => {
+              resetSelected();
+              setShowYearPicker(true);
+            }}
+          >
+            <Text
+              style={[
+                styles.headerText,
+                { color: isDark ? "#FFF" : "#007AFF" },
+              ]}
+            >
+              {year}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => {
+              resetSelected();
+              setShowMonthPicker(true);
+            }}
+          >
+            <Text
+              style={[
+                styles.headerText,
+                { color: isDark ? "#FFF" : "#007AFF" },
+              ]}
+            >
+              {months[month - 1]}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={goNextMonth}>
+            <Text style={[styles.arrow, { color: isDark ? "#FFF" : "#007AFF" }]}>
+              {">"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* FILTERS */}
+        <View style={styles.filterRow}>
+          {(["all", "easy", "medium", "hard"] as const).map((level) => (
+            <TouchableOpacity
+              key={level}
+              onPress={() => setDifficulty(level)}
+              style={[
+                styles.filterChip,
+                {
+                  borderColor: difficulty === level ? "#0A84FF" : "#ccc",
+                  backgroundColor: difficulty === level ? "#0A84FF22" : "transparent",
+                },
+              ]}
+            >
+              <Text style={{ color: isDark ? "#FFF" : "#000", fontWeight: "700" }}>
+                {level === "all"
+                  ? "All"
+                  : level === "easy"
+                  ? "Easy"
+                  : level === "medium"
+                  ? "Medium"
+                  : "Hard"}
+              </Text>
+            </TouchableOpacity>
+          ))}
+          <TouchableOpacity
+            onPress={() => setShowCompleted((p) => !p)}
+            style={[
+              styles.filterChip,
+              {
+                borderColor: showCompleted ? "#34C759" : "#ccc",
+                backgroundColor: showCompleted ? "#34C75922" : "transparent",
+              },
+            ]}
+          >
+            <Text style={{ color: isDark ? "#FFF" : "#000", fontWeight: "700" }}>
+              {showCompleted ? "Showing done" : "Open only"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* CALENDAR */}
+        <Calendar
+          key={currentMonthStr}
+          current={currentMonthStr}
+          onDayPress={(day) => setSelectedDate(day.dateString)}
+
+          /* ⭐ FIXED: updates header when swiping months */
+          onMonthChange={(date) => {
+            setYear(date.year);
+            setMonth(date.month);
+            resetSelected();
+          }}
+
+          markingType="multi-dot"
+          markedDates={markedDates}
+          hideExtraDays={true}
+          hideArrows
+          enableSwipeMonths
+          renderHeader={() => null}
+          theme={{
+            calendarBackground: isDark ? "#1C1C1E" : "#FFFFFF",
+            dayTextColor: isDark ? "#FFFFFF" : "#000000",
+            textDisabledColor: isDark ? "#666666" : "#CCCCCC",
+            textSectionTitleColor: isDark ? "#B0B0B0" : "#999999",
+            textDayFontSize: 16,
+          }}
+        />
+
+        {/* TASK LIST / AGENDA */}
+        <View style={styles.taskListContainer}>
+          <Text style={[styles.agendaTitle, { color: isDark ? "#FFF" : "#111" }]}>
+            {selectedDate ? `Tasks for ${selectedDate}` : "Next 7 days"}
+          </Text>
+          {assignmentsForDay.length === 0 ? (
             <Text style={[styles.noTasksText, { color: isDark ? "#BBB" : "#666" }]}>
-              No assignments due.
+              {selectedDate ? "No assignments due." : "No upcoming tasks in the next 7 days."}
             </Text>
           ) : (
             assignmentsForDay.map((item) => (
@@ -207,7 +343,11 @@ export default function CalendarScreen() {
                 href={{ pathname: "/edit-task", params: { id: item.id } }}
                 asChild
               >
-                <TouchableOpacity style={styles.taskCard}>
+                <TouchableOpacity
+                  style={styles.taskCard}
+                  onLongPress={() => handleQuickActions(item)}
+                  activeOpacity={0.85}
+                >
                   <View style={styles.taskHeaderRow}>
                     <View
                       style={[
@@ -221,13 +361,9 @@ export default function CalendarScreen() {
                 </TouchableOpacity>
               </Link>
             ))
-          )
-        ) : (
-          <Text style={[styles.noTasksText, { color: isDark ? "#BBB" : "#666" }]}>
-            Select a date to view assignments.
-          </Text>
-        )}
-      </View>
+          )}
+        </View>
+      </ScrollView>
 
       {/* PICKERS */}
       {/* YEAR PICKER */}
@@ -289,7 +425,10 @@ export default function CalendarScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 70,
+    paddingTop: 75,
+  },
+  scrollContent: {
+    paddingBottom: 140,
   },
 
   headerRow: {
@@ -298,6 +437,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     alignItems: "center",
     marginBottom: 10,
+  },
+  filterRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+
+  filterChip: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
   },
 
   arrow: {
@@ -317,6 +470,12 @@ const styles = StyleSheet.create({
 
   noTasksText: {
     fontSize: 16,
+  },
+
+  agendaTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    marginBottom: 8,
   },
 
   taskCard: {
@@ -372,5 +531,26 @@ const styles = StyleSheet.create({
 
   modalItem: {
     paddingVertical: 10,
+  },
+  blurHeader: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 80,
+    zIndex: 20,
+  },
+  blurFade: {
+    position: "absolute",
+    top: 80,
+    left: 0,
+    right: 0,
+    height: 40,
+    zIndex: 19,
+    backgroundColor: "transparent",
+    shadowColor: "#000",
+    shadowOpacity: 0.07,
+    shadowOffset: { height: 8, width: 0 },
+    shadowRadius: 12,
   },
 });
