@@ -4,8 +4,20 @@ import { updateAvailabilityWithFeedback } from "@/utils/availabilityFeedback";
 import { Ionicons } from "@expo/vector-icons";
 import { Link, router, useFocusEffect } from "expo-router";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { Alert, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import {
+  Alert,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { useScrollToTop } from "@react-navigation/native";
+import { BlurView } from "expo-blur";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Task = {
   id: number;
@@ -51,23 +63,26 @@ export default function TasksScreen() {
   const scrollRef = useRef<ScrollView>(null);
   useScrollToTop(scrollRef);
   const [refreshing, setRefreshing] = useState(false);
+  const [showHeaderBlur, setShowHeaderBlur] = useState(false);
+  const insets = useSafeAreaInsets();
+  const headerHeight = insets.top + 20;
 
-  const loadTasks = useCallback(async () => {
+  const loadTasks = useCallback(async (showSpinner = false) => {
     try {
-      setRefreshing(true);
+      if (showSpinner) setRefreshing(true);
       const dbTasks = await getTasks();
       setTasks(Array.isArray(dbTasks) ? (dbTasks as Task[]) : []);
     } catch (error) {
       console.error("Failed to load tasks", error);
       setTasks([]);
     } finally {
-      setRefreshing(false);
+      if (showSpinner) setRefreshing(false);
     }
   }, []);
 
   useFocusEffect(
     useCallback(() => {
-      loadTasks();
+      loadTasks(false);
     }, [loadTasks])
   );
 
@@ -150,6 +165,12 @@ export default function TasksScreen() {
       { userInterfaceStyle: dark ? "dark" : "light" }
     );
   };
+
+  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const y = event.nativeEvent.contentOffset.y;
+    const shouldShow = y > 8;
+    setShowHeaderBlur((prev) => (prev === shouldShow ? prev : shouldShow));
+  }, []);
 
   const renderTasks = (tasks: Task[]) => (
     <ScrollView
@@ -234,18 +255,33 @@ export default function TasksScreen() {
   );
 
   return (
-    <View style={[styles.container, { backgroundColor: background }]}>
-      <ScrollView
-        ref={scrollRef}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={loadTasks}
-            tintColor={dark ? "#FFF" : "#000"}
-          />
-        }
-      >
+    <SafeAreaView edges={["left", "right", "bottom"]} style={{ flex: 1, backgroundColor: background }}>
+      <View style={[styles.container, { backgroundColor: background }]}>
+        <BlurView
+          intensity={40}
+          tint={dark ? "dark" : "light"}
+          style={[
+            styles.blurHeader,
+            { height: headerHeight, opacity: showHeaderBlur ? 1 : 0 },
+          ]}
+          pointerEvents="none"
+        />
+
+        <ScrollView
+          ref={scrollRef}
+          showsVerticalScrollIndicator={false}
+          contentInsetAdjustmentBehavior="never"
+          contentContainerStyle={[styles.scrollContent, { paddingTop: headerHeight }]}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => loadTasks(true)}
+              tintColor={dark ? "#FFF" : "#000"}
+            />
+          }
+        >
         <View style={styles.filtersRow}>
           {(["all", "today", "week", "overdue"] as const).map((f) => (
             <TouchableOpacity
@@ -325,20 +361,31 @@ export default function TasksScreen() {
           ) : renderTasks(grouped.hard)}
         </View>
 
-      </ScrollView>
+        </ScrollView>
 
-      {/* Floating Add Button */}
-      <Link href="/add-assignment" asChild>
-        <TouchableOpacity style={styles.fab}>
-          <Ionicons name="add" size={32} color="#fff" />
-        </TouchableOpacity>
-      </Link>
-    </View>
+        {/* Floating Add Button */}
+        <Link href="/add-assignment" asChild>
+          <TouchableOpacity style={styles.fab}>
+            <Ionicons name="add" size={32} color="#fff" />
+          </TouchableOpacity>
+        </Link>
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, paddingTop: 80 },
+  container: { flex: 1, paddingHorizontal: 20 },
+  scrollContent: {
+    paddingBottom: 120,
+  },
+  blurHeader: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 20,
+  },
 
   filtersRow: {
     flexDirection: "row",

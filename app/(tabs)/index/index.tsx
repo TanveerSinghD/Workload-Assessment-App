@@ -19,6 +19,7 @@ import {
 } from "react-native";
 import { PieChart } from "react-native-gifted-charts";
 import { useScrollToTop } from "@react-navigation/native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Task = {
   id: number;
@@ -35,11 +36,13 @@ export default function HomeScreen() {
   const dark = colorScheme === "dark";
   const scrollRef = useRef<ScrollView>(null);
   useScrollToTop(scrollRef);
+  const insets = useSafeAreaInsets();
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [showHeaderBlur, setShowHeaderBlur] = useState(false);
+  const headerHeight = insets.top + 20;
 
   // Theme colours
   const background = dark ? "#1C1C1E" : "#FFFFFF";
@@ -54,9 +57,9 @@ export default function HomeScreen() {
     return base;
   }, []);
 
-  const loadTasks = useCallback(async () => {
+  const loadTasks = useCallback(async (showSpinner = false) => {
     try {
-      setRefreshing(true);
+      if (showSpinner) setRefreshing(true);
       const dbTasks = await getTasks();
       setTasks(Array.isArray(dbTasks) ? (dbTasks as Task[]) : []);
       setError(null);
@@ -65,13 +68,13 @@ export default function HomeScreen() {
       setError("Couldn't load tasks. Pull to refresh or restart.");
       setTasks([]);
     } finally {
-      setRefreshing(false);
+      if (showSpinner) setRefreshing(false);
     }
   }, []);
 
   useFocusEffect(
     useCallback(() => {
-      loadTasks();
+      loadTasks(false);
     }, [loadTasks])
   );
 
@@ -258,26 +261,30 @@ export default function HomeScreen() {
   }, []);
 
   return (
+    <SafeAreaView edges={["left", "right", "bottom"]} style={{ flex: 1, backgroundColor: background }}>
     <ThemedView style={[styles.container, { backgroundColor: background }]}>
       {/* Status bar blur overlay for nicer scroll */}
       <BlurView
         intensity={40}
         tint={dark ? "dark" : "light"}
-        style={[styles.blurHeader, { opacity: showHeaderBlur ? 1 : 0 }]}
+        style={[
+          styles.blurHeader,
+          { height: headerHeight, opacity: showHeaderBlur ? 1 : 0 },
+        ]}
         pointerEvents="none"
       />
-      <View style={[styles.blurFade, { opacity: showHeaderBlur ? 1 : 0 }]} />
 
       <ScrollView
         ref={scrollRef}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
+        contentInsetAdjustmentBehavior="never"
+        contentContainerStyle={[styles.scrollContent, { paddingTop: headerHeight }]}
         onScroll={handleScroll}
         scrollEventThrottle={16}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={loadTasks}
+            onRefresh={() => loadTasks(true)}
             tintColor={dark ? "#FFF" : "#000"}
           />
         }
@@ -290,7 +297,6 @@ export default function HomeScreen() {
             {
               backgroundColor: card,
               borderColor: border,
-              marginTop: 20, // ⭐ MOVE IT DOWN FURTHER
             },
           ]}
         >
@@ -528,14 +534,14 @@ export default function HomeScreen() {
 
       </ScrollView>
     </ThemedView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 20,
-    paddingTop: 60, // ⭐ THIS IS YOUR TOP PADDING LINE (around line ~183)
+    paddingHorizontal: 20,
   },
   scrollContent: {
     paddingBottom: 120, // avoid tab bar overlap
@@ -547,19 +553,6 @@ const styles = StyleSheet.create({
     right: 0,
     height: 80,
     zIndex: 20,
-  },
-  blurFade: {
-    position: "absolute",
-    top: 80,
-    left: 0,
-    right: 0,
-    height: 40,
-    zIndex: 19,
-    backgroundColor: "transparent",
-    shadowColor: "#000",
-    shadowOpacity: 0.07,
-    shadowOffset: { height: 8, width: 0 },
-    shadowRadius: 12,
   },
 
   card: {

@@ -7,6 +7,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { Alert, Modal, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Calendar } from "react-native-calendars";
 import { useScrollToTop } from "@react-navigation/native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Task = {
   id: number;
@@ -22,6 +23,7 @@ export default function CalendarScreen() {
   const isDark = colorScheme === "dark";
   const scrollRef = useRef<ScrollView>(null);
   useScrollToTop(scrollRef);
+  const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = useState(false);
 
   const [assignments, setAssignments] = useState<Task[]>([]);
@@ -37,21 +39,22 @@ export default function CalendarScreen() {
 
   const [showYearPicker, setShowYearPicker] = useState(false);
   const [showMonthPicker, setShowMonthPicker] = useState(false);
+  const headerHeight = insets.top + 20;
 
   // LIVE REFRESH WHEN SCREEN FOCUSES
-  const loadTasks = useCallback(async () => {
+  const loadTasks = useCallback(async (showSpinner = false) => {
     try {
-      setRefreshing(true);
+      if (showSpinner) setRefreshing(true);
       const data = (await getTasks()) as Task[];
       setAssignments(data);
     } finally {
-      setRefreshing(false);
+      if (showSpinner) setRefreshing(false);
     }
   }, []);
 
   useFocusEffect(
     useCallback(() => {
-      loadTasks();
+      loadTasks(false);
     }, [loadTasks])
   );
 
@@ -186,27 +189,22 @@ export default function CalendarScreen() {
   );
 
   return (
-    <View
-      style={[
-        styles.container,
-        { backgroundColor: isDark ? "#1C1C1E" : "#FFFFFF" },
-      ]}
-    >
+    <SafeAreaView edges={["left", "right", "bottom"]} style={{ flex: 1, backgroundColor: isDark ? "#1C1C1E" : "#FFFFFF" }}>
+    <View style={[styles.container, { backgroundColor: isDark ? "#1C1C1E" : "#FFFFFF" }]}>
       <BlurView
         intensity={40}
         tint={isDark ? "dark" : "light"}
-        style={styles.blurHeader}
+        style={[styles.blurHeader, { height: headerHeight }]}
       />
-      <View style={styles.blurFade} />
 
       <ScrollView
         ref={scrollRef}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingTop: headerHeight }]}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={loadTasks}
+            onRefresh={() => loadTasks(true)}
             tintColor={isDark ? "#FFF" : "#000"}
           />
         }
@@ -417,6 +415,7 @@ export default function CalendarScreen() {
         </TouchableOpacity>
       </Modal>
     </View>
+    </SafeAreaView>
   );
 }
 
@@ -425,7 +424,6 @@ export default function CalendarScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 75,
   },
   scrollContent: {
     paddingBottom: 140,
@@ -539,18 +537,5 @@ const styles = StyleSheet.create({
     right: 0,
     height: 80,
     zIndex: 20,
-  },
-  blurFade: {
-    position: "absolute",
-    top: 80,
-    left: 0,
-    right: 0,
-    height: 40,
-    zIndex: 19,
-    backgroundColor: "transparent",
-    shadowColor: "#000",
-    shadowOpacity: 0.07,
-    shadowOffset: { height: 8, width: 0 },
-    shadowRadius: 12,
   },
 });

@@ -1,12 +1,23 @@
 import { addTask, getTasks } from "@/app/database/database";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { updateAvailabilityWithFeedback } from "@/utils/availabilityFeedback";
+import { Ionicons } from "@expo/vector-icons";
+import { useScrollToTop } from "@react-navigation/native";
 import { BlurView } from "expo-blur";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { Alert, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { useScrollToTop } from "@react-navigation/native";
+import {
+  Alert,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Task = {
   id: number;
@@ -72,11 +83,13 @@ export default function PlannerScreen() {
   const dark = scheme === "dark";
   const scrollRef = useRef<ScrollView>(null);
   useScrollToTop(scrollRef);
+  const insets = useSafeAreaInsets();
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [showHeaderBlur, setShowHeaderBlur] = useState(false);
 
   // Same global colours as the rest of the app
   const background = dark ? "#1C1C1E" : "#FFFFFF";
@@ -85,9 +98,9 @@ export default function PlannerScreen() {
   const text = dark ? "#FFFFFF" : "#000000";
   const subtle = dark ? "#9A9A9D" : "#6B6B6C";
 
-  const loadTasks = useCallback(async () => {
+  const loadTasks = useCallback(async (showSpinner = false) => {
     try {
-      setRefreshing(true);
+      if (showSpinner) setRefreshing(true);
       const data = await getTasks();
       setTasks(Array.isArray(data) ? (data as Task[]) : []);
       setError(null);
@@ -97,14 +110,14 @@ export default function PlannerScreen() {
       setError("Couldn't load tasks. Try reopening the app.");
       setTasks([]);
     } finally {
-      setRefreshing(false);
+      if (showSpinner) setRefreshing(false);
     }
   }, []);
 
   // Refresh whenever the tab is focused
   useFocusEffect(
     useCallback(() => {
-      loadTasks();
+      loadTasks(false);
     }, [loadTasks])
   );
 
@@ -151,7 +164,7 @@ export default function PlannerScreen() {
         summary: "Add a task to see a plan of attack.",
         prioritized: [] as PlannedTask[],
         sections: [] as { title: string; hint: string; tasks: PlannedTask[] }[],
-        schedule: [] as { title: string; minutes: number; id: number }[],
+        schedule: [] as { title: string; minutes: number; id: number; energy: "deep" | "shallow" }[],
         totalMinutes: 0,
       };
     }
@@ -251,7 +264,7 @@ export default function PlannerScreen() {
     const prioritized = ranked.slice(0, 5);
 
     // Build simple time-box schedule for today (assumes ~3h block)
-    const schedule: { title: string; minutes: number; id: number; energy: string }[] = [];
+    const schedule: { title: string; minutes: number; id: number; energy: "deep" | "shallow" }[] = [];
     let budget = 180; // minutes
     for (const t of ranked) {
       if (schedule.length >= 6) break;
@@ -358,23 +371,38 @@ export default function PlannerScreen() {
     router.push({ pathname: "/tasks-filter", params: { filter } });
   }, []);
 
+  const headerHeight = insets.top + 15;
+  const contentTopPadding = headerHeight + 12;
+
+  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const y = event.nativeEvent.contentOffset.y;
+    const shouldShow = y > 8;
+    setShowHeaderBlur((prev) => (prev === shouldShow ? prev : shouldShow));
+  }, []);
+
   return (
+    <SafeAreaView edges={["left", "right", "bottom"]} style={{ flex: 1, backgroundColor: background }}>
     <View style={[styles.container, { backgroundColor: background }]}>
       <BlurView
         intensity={40}
         tint={dark ? "dark" : "light"}
-        style={styles.blurHeader}
+        style={[
+          styles.blurHeader,
+          { height: headerHeight, opacity: showHeaderBlur ? 1 : 0 },
+        ]}
       />
-      <View style={styles.blurFade} />
 
       <ScrollView
         ref={scrollRef}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingTop: contentTopPadding }]}
+        contentInsetAdjustmentBehavior="never"
         showsVerticalScrollIndicator={false}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={loadTasks}
+            onRefresh={() => loadTasks(true)}
             tintColor={dark ? "#FFF" : "#000"}
           />
         }
@@ -398,7 +426,7 @@ export default function PlannerScreen() {
             </View>
 
             <TouchableOpacity
-              onPress={loadTasks}
+              onPress={() => loadTasks(true)}
               style={[
                 styles.refreshBtn,
                 {
@@ -642,6 +670,7 @@ export default function PlannerScreen() {
         </View>
       </ScrollView>
     </View>
+    </SafeAreaView>
   );
 }
 
@@ -651,7 +680,6 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingTop: 90, // push content clear of the status bar/blur
     paddingBottom: 120, // keep clear of tab bar
     gap: 14,
   },
@@ -711,6 +739,9 @@ const styles = StyleSheet.create({
   sectionHint: {
     fontSize: 14,
     lineHeight: 20,
+  },
+  statHint: {
+    fontSize: 13,
   },
   flowBlock: {
     borderWidth: 1,
@@ -827,21 +858,8 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: 80,
+    height: 60,
     zIndex: 20,
-  },
-  blurFade: {
-    position: "absolute",
-    top: 80,
-    left: 0,
-    right: 0,
-    height: 40,
-    zIndex: 19,
-    backgroundColor: "transparent",
-    shadowColor: "#000",
-    shadowOpacity: 0.07,
-    shadowOffset: { height: 8, width: 0 },
-    shadowRadius: 12,
   },
   sectionHeader: {
     flexDirection: "row",
