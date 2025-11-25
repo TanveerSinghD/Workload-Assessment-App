@@ -209,7 +209,7 @@ export default function SettingsScreen() {
       <ScrollView
         ref={scrollRef}
         style={styles.container}
-        contentContainerStyle={{ paddingBottom: 120, paddingTop: 26 }}
+        contentContainerStyle={{ paddingBottom: 80, paddingTop: 26 }}
       >
 
         {/* TITLE */}

@@ -377,7 +377,7 @@ export default function TasksScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, paddingHorizontal: 20 },
   scrollContent: {
-    paddingBottom: 120,
+    paddingBottom: 50,
   },
   blurHeader: {
     position: "absolute",

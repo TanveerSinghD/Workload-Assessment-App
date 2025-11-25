@@ -20,6 +20,7 @@ import {
 import { PieChart } from "react-native-gifted-charts";
 import { useScrollToTop } from "@react-navigation/native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 
 type Task = {
   id: number;
@@ -311,28 +312,49 @@ export default function HomeScreen() {
               No tasks added yet.
             </ThemedText>
           ) : (
-            <View style={{ gap: 10 }}>
-              <TouchableOpacity
-                onPress={() => goToFilter("today")}
-                activeOpacity={0.85}
-                style={styles.fullRowTouchable}
-              >
-                <ThemedText style={{ color: text }}>Tasks due today: {stats.dueToday}</ThemedText>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => goToFilter("week")}
-                activeOpacity={0.85}
-                style={styles.fullRowTouchable}
-              >
-                <ThemedText style={{ color: text }}>Due this week: {stats.dueThisWeek}</ThemedText>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => goToFilter("overdue")}
-                activeOpacity={0.85}
-                style={styles.fullRowTouchable}
-              >
-                <ThemedText style={{ color: text }}>Overdue: {stats.overdue}</ThemedText>
-              </TouchableOpacity>
+            <View style={styles.statChipRow}>
+              {[
+                {
+                  label: "Today",
+                  value: stats.dueToday,
+                  color: "#0A84FF",
+                  icon: "sunny",
+                  filter: "today" as const,
+                },
+                {
+                  label: "This week",
+                  value: stats.dueThisWeek,
+                  color: "#30B0C7",
+                  icon: "calendar-outline",
+                  filter: "week" as const,
+                },
+                {
+                  label: "Overdue",
+                  value: stats.overdue,
+                  color: "#FF453A",
+                  icon: "warning-outline",
+                  filter: "overdue" as const,
+                },
+              ].map((item) => (
+                <TouchableOpacity
+                  key={item.label}
+                  onPress={() => goToFilter(item.filter)}
+                  activeOpacity={0.9}
+                  style={[
+                    styles.statChip,
+                    {
+                      backgroundColor: dark ? "rgba(255,255,255,0.06)" : "#F7F8FA",
+                      borderColor: dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)",
+                    },
+                  ]}
+                >
+                  <View style={styles.statChipTop}>
+                    <Ionicons name={item.icon as any} size={16} color={item.color} />
+                    <Text style={[styles.statChipLabel, { color: subtle }]}>{item.label}</Text>
+                  </View>
+                  <Text style={[styles.statChipValue, { color: text }]}>{item.value}</Text>
+                </TouchableOpacity>
+              ))}
             </View>
           )}
         </View>
@@ -541,10 +563,10 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: 15,
   },
   scrollContent: {
-    paddingBottom: 120, // avoid tab bar overlap
+    paddingBottom: 50, // avoid tab bar overlap
   },
   blurHeader: {
     position: "absolute",
@@ -603,6 +625,35 @@ const styles = StyleSheet.create({
   legendText: {
     fontSize: 14,
   },
+  statChipRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  statChip: {
+    flex: 1,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    gap: 6,
+    alignItems: "center",
+  },
+  statChipTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    justifyContent: "center",
+  },
+  statChipLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  statChipValue: {
+    fontSize: 22,
+    fontWeight: "800",
+    textAlign: "center",
+  },
   statRow: {
     flexDirection: "row",
     gap: 12,
@@ -625,9 +676,6 @@ const styles = StyleSheet.create({
   statHint: {
     fontSize: 13,
     marginTop: 4,
-  },
-  fullRowTouchable: {
-    paddingVertical: 6,
   },
   barBackground: {
     width: "100%",

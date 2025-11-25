@@ -157,7 +157,7 @@ export default function TasksFilterScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  scrollContent: { padding: 20, paddingTop: 20, paddingBottom: 120, gap: 12 },
+  scrollContent: { padding: 20, paddingTop: 20, paddingBottom: 50, gap: 12 },
   card: {
     borderWidth: 1,
     borderRadius: 14,

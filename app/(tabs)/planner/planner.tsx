@@ -680,7 +680,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingBottom: 120, // keep clear of tab bar
+    paddingBottom: 70, // keep clear of tab bar
     gap: 14,
   },
   card: {
