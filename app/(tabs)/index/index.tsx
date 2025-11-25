@@ -3,22 +3,23 @@ import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { updateAvailabilityWithFeedback } from "@/utils/availabilityFeedback";
+import { Ionicons } from "@expo/vector-icons";
+import { useScrollToTop } from "@react-navigation/native";
 import { BlurView } from "expo-blur";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
-  NativeSyntheticEvent,
-  NativeScrollEvent,
 } from "react-native";
 import { PieChart } from "react-native-gifted-charts";
-import { useScrollToTop } from "@react-navigation/native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Task = {
@@ -301,7 +302,7 @@ export default function HomeScreen() {
           ]}
         >
           <ThemedText type="subtitle" style={[styles.cardTitle, { color: text }]}>
-            Today’s Overview
+            Today
           </ThemedText>
 
           {error ? (
@@ -311,28 +312,49 @@ export default function HomeScreen() {
               No tasks added yet.
             </ThemedText>
           ) : (
-            <View style={{ gap: 10 }}>
-              <TouchableOpacity
-                onPress={() => goToFilter("today")}
-                activeOpacity={0.85}
-                style={styles.fullRowTouchable}
-              >
-                <ThemedText style={{ color: text }}>Tasks due today: {stats.dueToday}</ThemedText>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => goToFilter("week")}
-                activeOpacity={0.85}
-                style={styles.fullRowTouchable}
-              >
-                <ThemedText style={{ color: text }}>Due this week: {stats.dueThisWeek}</ThemedText>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => goToFilter("overdue")}
-                activeOpacity={0.85}
-                style={styles.fullRowTouchable}
-              >
-                <ThemedText style={{ color: text }}>Overdue: {stats.overdue}</ThemedText>
-              </TouchableOpacity>
+            <View style={styles.statChipRow}>
+              {[
+                {
+                  label: "Today",
+                  value: stats.dueToday,
+                  color: "#0A84FF",
+                  icon: "sunny",
+                  filter: "today" as const,
+                },
+                {
+                  label: "This week",
+                  value: stats.dueThisWeek,
+                  color: "#30B0C7",
+                  icon: "calendar-outline",
+                  filter: "week" as const,
+                },
+                {
+                  label: "Overdue",
+                  value: stats.overdue,
+                  color: "#FF453A",
+                  icon: "warning-outline",
+                  filter: "overdue" as const,
+                },
+              ].map((item) => (
+                <TouchableOpacity
+                  key={item.label}
+                  onPress={() => goToFilter(item.filter)}
+                  activeOpacity={0.9}
+                  style={[
+                    styles.statChip,
+                    {
+                      backgroundColor: dark ? "rgba(255,255,255,0.06)" : "#F7F8FA",
+                      borderColor: dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)",
+                    },
+                  ]}
+                >
+                  <View style={styles.statChipTop}>
+                    <Ionicons name={item.icon as any} size={16} color={item.color} />
+                    <Text style={[styles.statChipLabel, { color: subtle }]}>{item.label}</Text>
+                  </View>
+                  <Text style={[styles.statChipValue, { color: text }]}>{item.value}</Text>
+                </TouchableOpacity>
+              ))}
             </View>
           )}
         </View>
@@ -340,7 +362,7 @@ export default function HomeScreen() {
         {/* HEALTH PANEL */}
         <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
           <ThemedText type="subtitle" style={[styles.cardTitle, { color: text }]}>
-            Health
+            Progress
           </ThemedText>
 
           {/* Health Rows */}
@@ -403,7 +425,7 @@ export default function HomeScreen() {
         {/* OVERDUE + FORECAST */}
         <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
           <ThemedText type="subtitle" style={[styles.cardTitle, { color: text }]}>
-            Overdue & Forecast
+            Overdue and upcoming
           </ThemedText>
           <View style={styles.statRow}>
             <TouchableOpacity
@@ -428,7 +450,7 @@ export default function HomeScreen() {
             >
               <Text style={[styles.statLabel, { color: subtle }]}>Today</Text>
               <Text style={[styles.statValue, { color: text }]}>{loadForecast.todayCount}</Text>
-              <Text style={[styles.statHint, { color: subtle }]}>Next 3d: {loadForecast.next3}</Text>
+              <Text style={[styles.statHint, { color: subtle }]}>Next 3 days: {loadForecast.next3}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.statBox, { borderColor: border, backgroundColor: dark ? "#1F1F23" : "#F7F8FA" }]}
@@ -445,7 +467,7 @@ export default function HomeScreen() {
         {/* DIFFICULTY MIX */}
         <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
           <ThemedText type="subtitle" style={[styles.cardTitle, { color: text }]}>
-            Difficulty balance
+            Difficulty mix
           </ThemedText>
           <Text style={[styles.statHint, { color: subtle }]}>
             {difficultyMix.easy} easy · {difficultyMix.medium} medium · {difficultyMix.hard} hard
@@ -475,7 +497,7 @@ export default function HomeScreen() {
         {/* QUICK WINS */}
         <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
           <ThemedText type="subtitle" style={[styles.cardTitle, { color: text }]}>
-            Quick wins (easy & soon)
+            Quick wins
           </ThemedText>
           {quickWins.length === 0 ? (
             <Text style={[styles.statHint, { color: subtle }]}>No easy tasks queued.</Text>
@@ -500,7 +522,7 @@ export default function HomeScreen() {
         {/* RECENCY & AGING */}
         <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
           <ThemedText type="subtitle" style={[styles.cardTitle, { color: text }]}>
-            Recency & aging
+            Recent and oldest
           </ThemedText>
           <View style={styles.statRow}>
             <TouchableOpacity
@@ -510,7 +532,7 @@ export default function HomeScreen() {
             >
               <Text style={[styles.statLabel, { color: subtle }]}>Added last 48h</Text>
               <Text style={[styles.statValue, { color: text }]}>{recency.recent}</Text>
-              <Text style={[styles.statHint, { color: subtle }]}>Older: {recency.older}</Text>
+              <Text style={[styles.statHint, { color: subtle }]}>Older tasks: {recency.older}</Text>
             </TouchableOpacity>
             <View
               style={[
@@ -518,7 +540,7 @@ export default function HomeScreen() {
                 { flex: 2, borderColor: border, backgroundColor: dark ? "#1F1F23" : "#F7F8FA" },
               ]}
             >
-              <Text style={[styles.statLabel, { color: subtle }]}>Oldest open</Text>
+              <Text style={[styles.statLabel, { color: subtle }]}>Oldest open items</Text>
               {aging.length === 0 ? (
                 <Text style={[styles.statHint, { color: subtle }]}>No open tasks</Text>
               ) : (
@@ -541,10 +563,10 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: 15,
   },
   scrollContent: {
-    paddingBottom: 120, // avoid tab bar overlap
+    paddingBottom: 50, // avoid tab bar overlap
   },
   blurHeader: {
     position: "absolute",
@@ -603,6 +625,35 @@ const styles = StyleSheet.create({
   legendText: {
     fontSize: 14,
   },
+  statChipRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  statChip: {
+    flex: 1,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    gap: 6,
+    alignItems: "center",
+  },
+  statChipTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    justifyContent: "center",
+  },
+  statChipLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  statChipValue: {
+    fontSize: 22,
+    fontWeight: "800",
+    textAlign: "center",
+  },
   statRow: {
     flexDirection: "row",
     gap: 12,
@@ -625,9 +676,6 @@ const styles = StyleSheet.create({
   statHint: {
     fontSize: 13,
     marginTop: 4,
-  },
-  fullRowTouchable: {
-    paddingVertical: 6,
   },
   barBackground: {
     width: "100%",

@@ -94,7 +94,6 @@ export async function duplicateTask(id: number) {
   );
 }
 
-// ⭐ DELETE ALL TASKS (for settings page)
 export async function deleteAllTasks() {
   await db.runAsync("DELETE FROM tasks");
 }

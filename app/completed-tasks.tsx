@@ -190,7 +190,7 @@ export default function CompletedTasksScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 20, paddingTop: 40 },
-  scrollContent: { paddingBottom: 120, gap: 12 },
+  scrollContent: { paddingBottom: 50, gap: 12 },
   filtersRow: {
     flexDirection: "row",
     gap: 8,

@@ -2,12 +2,14 @@ import { deleteTask, duplicateTask, getTasks } from "@/app/database/database";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { updateAvailabilityWithFeedback } from "@/utils/availabilityFeedback";
 import { Ionicons } from "@expo/vector-icons";
+import { useScrollToTop } from "@react-navigation/native";
+import { BlurView } from "expo-blur";
 import { Link, router, useFocusEffect } from "expo-router";
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
   Alert,
-  NativeSyntheticEvent,
   NativeScrollEvent,
+  NativeSyntheticEvent,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -15,8 +17,6 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { useScrollToTop } from "@react-navigation/native";
-import { BlurView } from "expo-blur";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Task = {
@@ -377,7 +377,7 @@ export default function TasksScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, paddingHorizontal: 20 },
   scrollContent: {
-    paddingBottom: 120,
+
   },
   blurHeader: {
     position: "absolute",

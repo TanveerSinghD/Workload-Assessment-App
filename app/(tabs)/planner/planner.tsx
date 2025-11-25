@@ -161,7 +161,7 @@ export default function PlannerScreen() {
   const agentPlan = useMemo(() => {
     if (openTasks.length === 0) {
       return {
-        summary: "Add a task to see a plan of attack.",
+        summary: "Add a task to get a plan.",
         prioritized: [] as PlannedTask[],
         sections: [] as { title: string; hint: string; tasks: PlannedTask[] }[],
         schedule: [] as { title: string; minutes: number; id: number; energy: "deep" | "shallow" }[],
@@ -420,9 +420,9 @@ export default function PlannerScreen() {
           <View style={styles.heroTopRow}>
             <View style={styles.badgeRow}>
               <Text style={[styles.heroBadge, { color: "#0A84FF", borderColor: "#0A84FF" }]}>
-                AI Agent
+                Planner
               </Text>
-              <Text style={[styles.heroBadge, { color: subtle, borderColor: border }]}>On-device</Text>
+              <Text style={[styles.heroBadge, { color: subtle, borderColor: border }]}>Local data</Text>
             </View>
 
             <TouchableOpacity
@@ -439,9 +439,9 @@ export default function PlannerScreen() {
             </TouchableOpacity>
           </View>
 
-          <Text style={[styles.heroTitle, { color: text }]}>Your flight plan is ready</Text>
+          <Text style={[styles.heroTitle, { color: text }]}>Plan for today</Text>
           <Text style={[styles.heroCopy, { color: subtle }]}>
-            Generated locally from your current tasks. Prioritized by urgency and effort.
+            Built from your tasks using due dates and effort to set the order.
           </Text>
 
           <View style={styles.heroStatsRow}>
@@ -478,13 +478,13 @@ export default function PlannerScreen() {
         {overdueTasks.length > 0 && (
           <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
             <View style={styles.sectionHeader}>
-              <Text style={[styles.sectionTitle, { color: text }]}>Overdue rescue</Text>
+              <Text style={[styles.sectionTitle, { color: text }]}>Overdue tasks</Text>
               <Text style={[styles.pill, { color: "#FF3B30", borderColor: border }]}>
                 {overdueTasks.length} to fix
               </Text>
             </View>
             <Text style={[styles.sectionHint, { color: subtle }]}>
-              Tackle these first to get back on track.
+              Handle these first to get back on track.
             </Text>
 
             <View style={{ marginTop: 10, gap: 10 }}>
@@ -544,7 +544,7 @@ export default function PlannerScreen() {
 
               <View style={[styles.scheduleCard, { borderColor: border }]}>
                 <View style={styles.scheduleHeader}>
-                  <Text style={[styles.sectionTitle, { color: text }]}>Time-boxed schedule</Text>
+                  <Text style={[styles.sectionTitle, { color: text }]}>Schedule for today</Text>
                   <Text style={[styles.statHint, { color: subtle }]}>{agentPlan.totalMinutes} min planned</Text>
                 </View>
                 {agentPlan.schedule.length === 0 ? (
@@ -603,7 +603,7 @@ export default function PlannerScreen() {
         {agentPlan.sections.length > 0 && (
           <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
             <View style={styles.sectionHeader}>
-              <Text style={[styles.sectionTitle, { color: text }]}>Suggested flow</Text>
+              <Text style={[styles.sectionTitle, { color: text }]}>Suggested order</Text>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                 <Text style={[styles.pill, { color: subtle, borderColor: border }]}>
                   {stats.quick} quick wins · {stats.deep} deep work
@@ -680,7 +680,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingBottom: 120, // keep clear of tab bar
+    paddingBottom: 70, // keep clear of tab bar
     gap: 14,
   },
   card: {

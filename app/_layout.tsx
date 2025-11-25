@@ -6,8 +6,6 @@ import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { ThemeOverrideProvider } from '@/hooks/useThemeOverride';
-
-// ⭐ IMPORT DATABASE INIT
 import { initDatabase } from './database/database';
 
 export const unstable_settings = {
@@ -17,7 +15,6 @@ export const unstable_settings = {
 export default function RootLayout() {
   const colorScheme = useColorScheme();
 
-  // ⭐ INIT DB ONCE WHEN APP LOADS
   useEffect(() => {
     initDatabase();
   }, []);

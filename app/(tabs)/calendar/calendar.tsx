@@ -303,7 +303,6 @@ export default function CalendarScreen() {
           current={currentMonthStr}
           onDayPress={(day) => setSelectedDate(day.dateString)}
 
-          /* ⭐ FIXED: updates header when swiping months */
           onMonthChange={(date) => {
             setYear(date.year);
             setMonth(date.month);

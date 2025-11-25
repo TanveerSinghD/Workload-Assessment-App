@@ -1,7 +1,8 @@
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useScrollToTop } from "@react-navigation/native";
 import { BlurView } from "expo-blur";
 import * as Clipboard from "expo-clipboard";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   Alert,
   ScrollView,
@@ -11,8 +12,6 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { useRef } from "react";
-import { useScrollToTop } from "@react-navigation/native";
 
 import { addTask, deleteAllTasks, deleteCompletedTasks, getTasks } from "@/app/database/database";
 
@@ -209,7 +208,7 @@ export default function SettingsScreen() {
       <ScrollView
         ref={scrollRef}
         style={styles.container}
-        contentContainerStyle={{ paddingBottom: 120, paddingTop: 26 }}
+        contentContainerStyle={{ paddingBottom: 70, paddingTop: 26 }}
       >
 
         {/* TITLE */}

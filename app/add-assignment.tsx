@@ -18,24 +18,16 @@ export default function AddAssignmentScreen() {
   const text = dark ? "#FFFFFF" : "#000000";
   const border = dark ? "#3A3A3C" : "#C7C7CC";
 
-  // --------------------------------------------
-  // Title + Date State
-  // --------------------------------------------
+  // Title + Date
   const [title, setTitle] = useState("");
-
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [selectedYear, setSelectedYear] = useState<string | null>(null);
 
-  // --------------------------------------------
-  // Description + Difficulty State
-  // --------------------------------------------
+  // Details
   const [description, setDescription] = useState("");
   const [difficulty, setDifficulty] = useState<"easy" | "medium" | "hard" | null>(null);
 
-  // --------------------------------------------
-  // Picker Options
-  // --------------------------------------------
   const days = useMemo(() => Array.from({ length: 31 }, (_, i) => String(i + 1)), []);
 
   const months = useMemo(
@@ -67,9 +59,7 @@ export default function AddAssignmentScreen() {
     return [String(currentYear), String(currentYear + 1)];
   }, []);
 
-  // ----------------------------------------------------------
-  // ⭐ Auto-set today's date on mount
-  // ----------------------------------------------------------
+  // Default to today's date
   useEffect(() => {
     const now = new Date();
     setSelectedDay(String(now.getDate()));
@@ -77,9 +67,6 @@ export default function AddAssignmentScreen() {
     setSelectedYear(String(now.getFullYear()));
   }, [months]);
 
-  // ----------------------------------------------------------
-  // Save Task Function
-  // ----------------------------------------------------------
   const handleSave = async () => {
     if (!title || !description || !difficulty || !selectedDay || !selectedMonth || !selectedYear) {
       Alert.alert("Missing Fields", "Please fill out all fields before saving.");
@@ -107,9 +94,6 @@ export default function AddAssignmentScreen() {
     hard: "#FF4C4C",
   };
 
-  // ----------------------------------------------------------
-  // Disable past months / days
-  // ----------------------------------------------------------
   const now = new Date();
   const currentYear = String(now.getFullYear());
   const currentMonthIndex = now.getMonth();
@@ -117,7 +101,6 @@ export default function AddAssignmentScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: background }]}>
-      {/* -------------------- TITLE -------------------- */}
       <Text style={[styles.label, { color: text }]}>Task Title</Text>
 
       <TextInput
@@ -128,7 +111,6 @@ export default function AddAssignmentScreen() {
         onChangeText={setTitle}
       />
 
-      {/* -------------------- DATE -------------------- */}
       <Text style={[styles.label, { color: text, marginTop: 20 }]}>Due Date</Text>
 
       <View style={styles.row}>
@@ -205,7 +187,6 @@ export default function AddAssignmentScreen() {
         </View>
       </View>
 
-      {/* -------------------- DESCRIPTION -------------------- */}
       <Text style={[styles.label, { color: text, marginTop: 20 }]}>Description</Text>
 
       <TextInput
@@ -217,7 +198,6 @@ export default function AddAssignmentScreen() {
         multiline
       />
 
-      {/* -------------------- DIFFICULTY -------------------- */}
       <Text style={[styles.label, { color: text, marginTop: 20 }]}>Difficulty</Text>
 
       <View style={styles.tagRow}>
@@ -240,7 +220,6 @@ export default function AddAssignmentScreen() {
         ))}
       </View>
 
-      {/* -------------------- SAVE -------------------- */}
       <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
         <Text style={styles.saveButtonText}>SAVE</Text>
       </TouchableOpacity>
