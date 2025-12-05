@@ -1,8 +1,8 @@
+import { useNavigation } from "@react-navigation/native";
 import { BlurView } from "expo-blur";
 import { Tabs } from "expo-router";
 import React, { useRef } from "react";
 import { Animated, LayoutChangeEvent } from "react-native";
-import { useNavigation } from "@react-navigation/native";
 
 import { HapticTab } from "@/components/haptic-tab";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -65,7 +65,7 @@ export default function TabLayout() {
         tabBarBackground: () => (
           <BlurView
             tint={dark ? "dark" : "light"}
-            intensity={0} // transparent backing; rely on outline/shadow
+            intensity={30}
             onLayout={onLayout}
             style={{
               flex: 1,
@@ -86,8 +86,8 @@ export default function TabLayout() {
                 height: 50,
                 borderRadius: 20,
                 backgroundColor: dark
-                  ? "rgba(255,255,255,0.22)"
-                  : "rgba(0,0,0,0.12)",
+                  ? "rgba(255,255,255,0.20)"
+                  : "rgba(0,0,0,0.08)",
                 transform: [{ translateX: sliderX }],
               }}
             />
@@ -100,11 +100,11 @@ export default function TabLayout() {
           marginHorizontal: 16,
           height: 70,
           borderRadius: 40,
-          backgroundColor: "transparent",
-          borderWidth: 1.5,
+          backgroundColor: "rgba(255,255,255,0.05)",
+          borderWidth: 1,
           borderColor: dark
-            ? "rgba(255,255,255,0.28)"
-            : "rgba(0,0,0,0.14)",
+            ? "rgba(255,255,255,0.12)"
+            : "rgba(0,0,0,0.10)",
           shadowColor: "#000",
           shadowOpacity: 0.18,
           shadowRadius: 25,
