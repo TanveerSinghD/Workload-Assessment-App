@@ -1,4 +1,4 @@
-import { deleteTask, duplicateTask, getTasks } from "@/app/database/database";
+import { deleteTask, duplicateTask, getTasks } from "@/lib/database";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { updateAvailabilityWithFeedback } from "@/utils/availabilityFeedback";
 import { Ionicons } from "@expo/vector-icons";
@@ -126,8 +126,13 @@ export default function TasksScreen() {
   };
 
   const handleDuplicate = async (task: Task) => {
-    await duplicateTask(task.id);
-    await loadTasks();
+    try {
+      await duplicateTask(task.id);
+      await loadTasks();
+    } catch (error) {
+      console.error("Failed to duplicate task", error);
+      Alert.alert("Duplicate failed", "Please sign in again and try duplicating.");
+    }
   };
 
   const handleDelete = (task: Task) => {
@@ -140,8 +145,13 @@ export default function TasksScreen() {
           text: "Delete",
           style: "destructive",
           onPress: async () => {
-            await deleteTask(task.id);
-            await loadTasks();
+            try {
+              await deleteTask(task.id);
+              await loadTasks();
+            } catch (error) {
+              console.error("Failed to delete task", error);
+              Alert.alert("Delete failed", "Please sign in again and retry.");
+            }
           },
         },
       ],

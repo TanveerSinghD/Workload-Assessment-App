@@ -1,4 +1,4 @@
-import { getTasks } from "@/app/database/database";
+import { getTasks } from "@/lib/database";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";

@@ -1,4 +1,4 @@
-import { addTask, getTasks } from "@/app/database/database";
+import { addTask, getTasks } from "@/lib/database";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { updateAvailabilityWithFeedback } from "@/utils/availabilityFeedback";
 import { Ionicons } from "@expo/vector-icons";
@@ -521,7 +521,7 @@ export default function PlannerScreen() {
         {/* PRIORITY PLAN */}
         <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
             <View style={styles.sectionHeader}>
-              <Text style={[styles.sectionTitle, { color: text }]}>Today's game plan</Text>
+              <Text style={[styles.sectionTitle, { color: text }]}>Today&apos;s game plan</Text>
               <TouchableOpacity
                 onPress={() => goToSection("critical")}
                 activeOpacity={0.85}

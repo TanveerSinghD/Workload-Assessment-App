@@ -29,7 +29,7 @@ An Expo Router task planner that keeps your assignments on-device in SQLite. Add
 - `app/(tabs)/tasks/` – difficulty-grouped task list
 - `app/(tabs)/calendar/` – calendar view
 - `app/(tabs)/settings/` – utilities and data actions
-- `app/database/database.ts` – SQLite schema and CRUD helpers
+- `lib/database.ts` – SQLite schema and CRUD helpers
 
 ## Getting started
 1. Install dependencies: `npm install`
@@ -45,7 +45,7 @@ An Expo Router task planner that keeps your assignments on-device in SQLite. Add
 - `npm run lint` – run Expo lint rules
 
 ## Data and storage
-- Tasks are stored locally in `tasks.db` (managed in `app/database/database.ts` via `expo-sqlite`).
+- Tasks are stored locally in `tasks.db` (managed in `lib/database.ts` via `expo-sqlite`).
 - To wipe data, use Settings → Clear All Tasks or delete `tasks.db` from the device/simulator.
 - Import/export uses the clipboard as JSON; dummy data seeding is available in Settings.
 

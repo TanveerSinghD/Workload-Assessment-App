@@ -1,4 +1,4 @@
-import { getTasks } from "@/app/database/database";
+import { getTasks } from "@/lib/database";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { updateAvailabilityWithFeedback } from "@/utils/availabilityFeedback";
 import { BlurView } from "expo-blur";
@@ -31,8 +31,12 @@ export default function CalendarScreen() {
   const [showCompleted, setShowCompleted] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
-  const today = new Date();
-  const todayStr = today.toISOString().split("T")[0];
+  const today = useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, []);
+  const todayStr = useMemo(() => today.toISOString().split("T")[0], [today]);
 
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
@@ -64,11 +68,14 @@ export default function CalendarScreen() {
   ];
 
   // Difficulty colours
-  const difficultyDot = {
-    easy: "#34C759",
-    medium: "#FFD60A",
-    hard: "#FF453A",
-  };
+  const difficultyDot = useMemo(
+    () => ({
+      easy: "#34C759",
+      medium: "#FFD60A",
+      hard: "#FF453A",
+    }),
+    []
+  );
 
   const filteredAssignments = useMemo(() => {
     return assignments.filter((t) => {

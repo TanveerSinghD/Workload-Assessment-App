@@ -1,4 +1,4 @@
-import { addTask } from "@/app/database/database";
+import { addTask } from "@/lib/database";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { Picker } from "@react-native-picker/picker";
 import { router } from "expo-router";
@@ -78,14 +78,19 @@ export default function AddAssignmentScreen() {
 
     const dueDate = `${selectedYear}-${monthNum}-${day}`;
 
-    await addTask({
-      title,
-      description,
-      difficulty,
-      due_date: dueDate,
-    });
+    try {
+      await addTask({
+        title,
+        description,
+        difficulty,
+        due_date: dueDate,
+      });
 
-    router.back();
+      router.back();
+    } catch (error) {
+      console.error("Failed to save task", error);
+      Alert.alert("Save failed", "Please sign in again and try saving.");
+    }
   };
 
   const difficultyColors = {

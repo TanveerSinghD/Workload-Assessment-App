@@ -1,4 +1,4 @@
-import { deleteTask, getTask as getTaskById, updateTask } from "@/app/database/database";
+import { deleteTask, getTask as getTaskById, updateTask } from "@/lib/database";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { updateAvailabilityWithFeedback } from "@/utils/availabilityFeedback";
 import { Picker } from "@react-native-picker/picker";
@@ -195,8 +195,13 @@ export default function EditTaskScreen() {
           text: "Delete",
           style: "destructive",
           onPress: async () => {
-            await deleteTask(taskId);
-            router.back();
+            try {
+              await deleteTask(taskId);
+              router.back();
+            } catch (error) {
+              console.error("Failed to delete task", error);
+              Alert.alert("Delete failed", "Please sign in again and try deleting.");
+            }
           },
         },
       ],

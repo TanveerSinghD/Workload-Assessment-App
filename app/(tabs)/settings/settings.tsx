@@ -1,9 +1,12 @@
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useAuth } from "@/hooks/useAuth";
 import { useScrollToTop } from "@react-navigation/native";
+import { router } from "expo-router";
 import { BlurView } from "expo-blur";
 import * as Clipboard from "expo-clipboard";
 import { useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   ScrollView,
   StyleSheet,
@@ -13,17 +16,19 @@ import {
   View,
 } from "react-native";
 
-import { addTask, deleteAllTasks, deleteCompletedTasks, getTasks } from "@/app/database/database";
+import { addTask, deleteAllTasks, deleteCompletedTasks, getTasks } from "@/lib/database";
 
 export default function SettingsScreen() {
   const scheme = useColorScheme();
   const dark = scheme === "dark";
+  const { user, signOut } = useAuth();
   const scrollRef = useRef<ScrollView>(null);
   useScrollToTop(scrollRef);
 
   // States
   const [notifications, setNotifications] = useState(true);
   const [appLock, setAppLock] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
   // Colors
   const background = dark ? "#1C1C1E" : "#f2f2f7";
@@ -52,13 +57,42 @@ export default function SettingsScreen() {
                   text: "Delete",
                   style: "destructive",
                   onPress: async () => {
-                    await deleteAllTasks();
-                    console.log("All tasks deleted.");
+                    try {
+                      await deleteAllTasks();
+                      console.log("All tasks deleted.");
+                    } catch (error) {
+                      console.error("Failed to delete tasks", error);
+                      Alert.alert("Delete failed", "Please try again after signing in.");
+                    }
                   },
                 },
               ],
               { userInterfaceStyle: dark ? "dark" : "light" }
             );
+          },
+        },
+      ],
+      { userInterfaceStyle: dark ? "dark" : "light" }
+    );
+  };
+
+  const handleSignOut = () => {
+    Alert.alert(
+      "Sign out?",
+      "You'll need to log back in to see your tasks.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Sign out",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setSigningOut(true);
+              await signOut();
+              router.replace("/login");
+            } finally {
+              setSigningOut(false);
+            }
           },
         },
       ],
@@ -163,8 +197,13 @@ export default function SettingsScreen() {
           text: "Remove",
           style: "destructive",
           onPress: async () => {
-            await deleteCompletedTasks();
-            Alert.alert("Done", "Completed tasks were removed.");
+            try {
+              await deleteCompletedTasks();
+              Alert.alert("Done", "Completed tasks were removed.");
+            } catch (error) {
+              console.error("Failed to clear completed tasks", error);
+              Alert.alert("Couldn't clear tasks", "Please sign in again and retry.");
+            }
           },
         },
       ],
@@ -182,9 +221,14 @@ export default function SettingsScreen() {
           text: "Reset",
           style: "destructive",
           onPress: async () => {
-            await deleteAllTasks();
-            await seedDummyTasks();
-            Alert.alert("Reset complete", "Dummy tasks have been reloaded.");
+            try {
+              await deleteAllTasks();
+              await seedDummyTasks();
+              Alert.alert("Reset complete", "Dummy tasks have been reloaded.");
+            } catch (error) {
+              console.error("Failed to reset demo data", error);
+              Alert.alert("Reset failed", "Please sign in again and retry.");
+            }
           },
         },
       ],
@@ -218,16 +262,25 @@ export default function SettingsScreen() {
         <View style={[styles.card, { backgroundColor: card }]}>
           <Text style={[styles.sectionLabel, { color: subtext }]}>Account</Text>
 
-          <TouchableOpacity style={styles.row}>
-            <Text style={[styles.label, { color: text }]}>Change Email</Text>
-          </TouchableOpacity>
+          <View style={styles.row}>
+            <Text style={[styles.label, { color: text }]}>Name</Text>
+            <Text style={[styles.value, { color: subtext }]}>
+              {user?.name || "Not set"}
+            </Text>
+          </View>
 
-          <TouchableOpacity style={styles.row}>
-            <Text style={[styles.label, { color: text }]}>Change Password</Text>
-          </TouchableOpacity>
+          <View style={styles.row}>
+            <Text style={[styles.label, { color: text }]}>Email</Text>
+            <Text style={[styles.value, { color: subtext }]}>
+              {user?.email || "—"}
+            </Text>
+          </View>
 
-          <TouchableOpacity style={styles.row}>
-            <Text style={[styles.label, { color: "#FF3B30" }]}>Sign Out</Text>
+          <TouchableOpacity style={styles.row} onPress={handleSignOut} disabled={signingOut}>
+            <Text style={[styles.label, { color: "#FF3B30" }]}>
+              {signingOut ? "Signing out..." : "Sign Out"}
+            </Text>
+            {signingOut && <ActivityIndicator color="#FF3B30" />}
           </TouchableOpacity>
         </View>
 

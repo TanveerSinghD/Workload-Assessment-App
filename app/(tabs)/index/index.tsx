@@ -1,4 +1,4 @@
-import { getTasks } from "@/app/database/database";
+import { getTasks } from "@/lib/database";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { useColorScheme } from "@/hooks/use-color-scheme";
@@ -124,9 +124,6 @@ export default function HomeScreen() {
       dueThisWeek,
     };
   }, [tasks, daysDiff, dateFromTask]);
-
-  // Apply filter to tasks
-  const filteredAssignments = tasks;
 
   // Overdue + time-based analytics
   const overdueTasks = useMemo(

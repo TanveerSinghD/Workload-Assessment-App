@@ -1,6 +1,6 @@
 import { Alert } from "react-native";
 
-import { setTaskCompleted } from "@/app/database/database";
+import { setTaskCompleted } from "@/lib/database";
 
 type AvailabilityFeedbackOptions = {
   silentSuccess?: boolean;
