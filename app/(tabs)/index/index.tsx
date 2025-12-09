@@ -1,7 +1,7 @@
-import { getTasks } from "@/lib/database";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { getTasks } from "@/lib/database";
 import { updateAvailabilityWithFeedback } from "@/utils/availabilityFeedback";
 import { Ionicons } from "@expo/vector-icons";
 import { useScrollToTop } from "@react-navigation/native";
@@ -43,7 +43,7 @@ export default function HomeScreen() {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [showHeaderBlur, setShowHeaderBlur] = useState(false);
-  const headerHeight = insets.top + 20;
+  const headerHeight = insets.top + 8;
 
   // Theme colours
   const background = dark ? "#1C1C1E" : "#FFFFFF";
@@ -259,7 +259,7 @@ export default function HomeScreen() {
   }, []);
 
   return (
-    <SafeAreaView edges={["left", "right", "bottom"]} style={{ flex: 1, backgroundColor: background }}>
+    <SafeAreaView edges={["left", "right"]} style={{ flex: 1, backgroundColor: background }}>
     <ThemedView style={[styles.container, { backgroundColor: background }]}>
       {/* Status bar blur overlay for nicer scroll */}
       <BlurView
@@ -276,7 +276,10 @@ export default function HomeScreen() {
         ref={scrollRef}
         showsVerticalScrollIndicator={false}
         contentInsetAdjustmentBehavior="never"
-        contentContainerStyle={[styles.scrollContent, { paddingTop: headerHeight }]}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingTop: headerHeight, paddingBottom: insets.bottom + 120 },
+        ]}
         onScroll={handleScroll}
         scrollEventThrottle={16}
         refreshControl={
@@ -563,7 +566,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
   },
   scrollContent: {
-    paddingBottom: 50, // avoid tab bar overlap
+    paddingBottom: 1, // small cushion for the tab bar without leaving a large block
   },
   blurHeader: {
     position: "absolute",

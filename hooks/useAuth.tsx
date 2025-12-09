@@ -3,7 +3,6 @@ import { Alert } from "react-native";
 
 import {
   adoptOrphanTasks,
-  getActiveUser,
   getOrCreateActiveUser,
   initDatabase,
   signInWithEmail,

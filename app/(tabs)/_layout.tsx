@@ -3,6 +3,7 @@ import { BlurView } from "expo-blur";
 import { Tabs } from "expo-router";
 import React, { useRef } from "react";
 import { Animated, LayoutChangeEvent } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 
 import { HapticTab } from "@/components/haptic-tab";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -12,6 +13,7 @@ export default function TabLayout() {
   const colorScheme = useColorScheme();
   const dark = colorScheme === "dark";
   const navigation = useNavigation();
+  const blurTint = dark ? "systemChromeMaterialDark" : "systemChromeMaterialLight";
 
   // 🔵 Sliding bubble animation
   const sliderX = useRef(new Animated.Value(0)).current;
@@ -64,19 +66,45 @@ export default function TabLayout() {
         // 🍏 Frosted glass tab bar
         tabBarBackground: () => (
           <BlurView
-            tint={dark ? "dark" : "light"}
-            intensity={30}
+            tint={blurTint}
+            intensity={90}
+            experimentalBlurMethod="dimezisBlurView"
+            blurReductionFactor={1.25}
             onLayout={onLayout}
             style={{
               flex: 1,
               borderRadius: 40,
               overflow: "hidden",
+              backgroundColor: "transparent",
+              borderWidth: 1,
+              borderColor: dark
+                ? "rgba(255,255,255,0.12)"
+                : "rgba(0,0,0,0.08)",
               justifyContent: "center",
             }}
             onStartShouldSetResponder={() => true}
             onResponderMove={(e) => handleDrag(e.nativeEvent.locationX)}
             onResponderRelease={(e) => handleDrag(e.nativeEvent.locationX, true)}
           >
+            {/* Glossy highlight for glass feel */}
+            <LinearGradient
+              pointerEvents="none"
+              colors={
+                dark
+                  ? ["rgba(255,255,255,0.10)", "rgba(255,255,255,0.02)"]
+                  : ["rgba(255,255,255,0.18)", "rgba(255,255,255,0.03)"]
+              }
+              start={{ x: 0.2, y: 0 }}
+              end={{ x: 0.8, y: 1 }}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+              }}
+            />
+
             {/* 🔵 Bubble behind active tab */}
             <Animated.View
               style={{
@@ -100,11 +128,9 @@ export default function TabLayout() {
           marginHorizontal: 16,
           height: 70,
           borderRadius: 40,
-          backgroundColor: "rgba(255,255,255,0.05)",
-          borderWidth: 1,
-          borderColor: dark
-            ? "rgba(255,255,255,0.12)"
-            : "rgba(0,0,0,0.10)",
+          backgroundColor: "transparent",
+          borderWidth: 0,
+          borderColor: "transparent",
           shadowColor: "#000",
           shadowOpacity: 0.18,
           shadowRadius: 25,

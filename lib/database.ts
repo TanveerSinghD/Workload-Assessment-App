@@ -39,6 +39,7 @@ export async function initDatabase() {
     CREATE TABLE IF NOT EXISTS sessions (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       user_id INTEGER,
+      signed_out INTEGER DEFAULT 0,
       updated_at TEXT
     );
   `);
@@ -59,6 +60,7 @@ export async function initDatabase() {
 
   // Old installs won't have user scoping yet
   await ensureColumnExists("tasks", "user_id", "INTEGER");
+  await ensureColumnExists("sessions", "signed_out", "INTEGER DEFAULT 0");
 }
 
 const normalizeEmail = (email: string) => email.trim().toLowerCase();
@@ -71,21 +73,41 @@ async function findUserByEmail(email: string) {
   );
 }
 
+type SessionRow = { user_id?: number | null; signed_out?: number | null };
+
+function isSignedOut(session: SessionRow | null) {
+  return session?.signed_out === 1;
+}
+
 async function setActiveUser(userId: number) {
   await db.runAsync(
     `
-      INSERT INTO sessions (id, user_id, updated_at)
-      VALUES (1, ?, datetime('now'))
-      ON CONFLICT(id) DO UPDATE SET user_id = excluded.user_id, updated_at = excluded.updated_at;
+      INSERT INTO sessions (id, user_id, signed_out, updated_at)
+      VALUES (1, ?, 0, datetime('now'))
+      ON CONFLICT(id) DO UPDATE SET user_id = excluded.user_id, signed_out = 0, updated_at = excluded.updated_at;
     `,
     [userId]
   );
 }
 
+async function getSession(): Promise<SessionRow | null> {
+  return db.getFirstAsync<SessionRow>("SELECT user_id, signed_out FROM sessions WHERE id = 1");
+}
+
 async function ensureActiveUser(): Promise<UserProfile | null> {
-  // Try existing session
-  const current = await getActiveUser();
-  if (current) return current;
+  // Try existing session; respect explicit sign-out
+  const session = await getSession();
+  if (isSignedOut(session)) {
+    return null;
+  }
+
+  if (session?.user_id) {
+    const existing = await db.getFirstAsync<UserProfile>(
+      "SELECT id, name, email, provider, password, created_at FROM users WHERE id = ?",
+      [session.user_id]
+    );
+    if (existing) return existing;
+  }
 
   // Rehydrate from first user if session was cleared
   const fallback = await db.getFirstAsync<UserProfile>(
@@ -118,14 +140,18 @@ export async function getOrCreateActiveUser(): Promise<UserProfile | null> {
 }
 
 export async function signOutUser() {
-  await db.runAsync("DELETE FROM sessions WHERE id = 1");
+  await db.runAsync(
+    `
+      INSERT INTO sessions (id, user_id, signed_out, updated_at)
+      VALUES (1, NULL, 1, datetime('now'))
+      ON CONFLICT(id) DO UPDATE SET user_id = NULL, signed_out = 1, updated_at = excluded.updated_at;
+    `
+  );
 }
 
 export async function getActiveUser(): Promise<UserProfile | null> {
-  const session = await db.getFirstAsync<{ user_id?: number }>(
-    "SELECT user_id FROM sessions WHERE id = 1"
-  );
-  if (!session?.user_id) return null;
+  const session = await getSession();
+  if (isSignedOut(session) || !session?.user_id) return null;
 
   const user = await db.getFirstAsync<UserProfile>(
     "SELECT id, name, email, provider, password, created_at FROM users WHERE id = ?",

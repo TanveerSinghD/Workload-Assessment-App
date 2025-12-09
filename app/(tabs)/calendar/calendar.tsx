@@ -43,7 +43,7 @@ export default function CalendarScreen() {
 
   const [showYearPicker, setShowYearPicker] = useState(false);
   const [showMonthPicker, setShowMonthPicker] = useState(false);
-  const headerHeight = insets.top + 20;
+  const headerHeight = insets.top + 8;
 
   // LIVE REFRESH WHEN SCREEN FOCUSES
   const loadTasks = useCallback(async (showSpinner = false) => {
@@ -196,7 +196,7 @@ export default function CalendarScreen() {
   );
 
   return (
-    <SafeAreaView edges={["left", "right", "bottom"]} style={{ flex: 1, backgroundColor: isDark ? "#1C1C1E" : "#FFFFFF" }}>
+    <SafeAreaView edges={["left", "right"]} style={{ flex: 1, backgroundColor: isDark ? "#1C1C1E" : "#FFFFFF" }}>
     <View style={[styles.container, { backgroundColor: isDark ? "#1C1C1E" : "#FFFFFF" }]}>
       <BlurView
         intensity={40}
@@ -206,7 +206,10 @@ export default function CalendarScreen() {
 
       <ScrollView
         ref={scrollRef}
-        contentContainerStyle={[styles.scrollContent, { paddingTop: headerHeight }]}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingTop: headerHeight, paddingBottom: insets.bottom + 120 },
+        ]}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl

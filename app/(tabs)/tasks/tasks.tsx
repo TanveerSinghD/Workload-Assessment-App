@@ -65,7 +65,7 @@ export default function TasksScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [showHeaderBlur, setShowHeaderBlur] = useState(false);
   const insets = useSafeAreaInsets();
-  const headerHeight = insets.top + 20;
+  const headerHeight = insets.top + 8;
 
   const loadTasks = useCallback(async (showSpinner = false) => {
     try {
@@ -265,7 +265,7 @@ export default function TasksScreen() {
   );
 
   return (
-    <SafeAreaView edges={["left", "right", "bottom"]} style={{ flex: 1, backgroundColor: background }}>
+    <SafeAreaView edges={["left", "right"]} style={{ flex: 1, backgroundColor: background }}>
       <View style={[styles.container, { backgroundColor: background }]}>
         <BlurView
           intensity={40}
@@ -281,7 +281,10 @@ export default function TasksScreen() {
           ref={scrollRef}
           showsVerticalScrollIndicator={false}
           contentInsetAdjustmentBehavior="never"
-          contentContainerStyle={[styles.scrollContent, { paddingTop: headerHeight }]}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingTop: headerHeight, paddingBottom: insets.bottom + 120 },
+          ]}
           onScroll={handleScroll}
           scrollEventThrottle={16}
           refreshControl={

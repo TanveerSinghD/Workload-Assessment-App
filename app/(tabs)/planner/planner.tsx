@@ -371,8 +371,8 @@ export default function PlannerScreen() {
     router.push({ pathname: "/tasks-filter", params: { filter } });
   }, []);
 
-  const headerHeight = insets.top + 15;
-  const contentTopPadding = headerHeight + 12;
+  const headerHeight = insets.top + 8;
+  const contentTopPadding = headerHeight + 8;
 
   const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const y = event.nativeEvent.contentOffset.y;
@@ -381,7 +381,7 @@ export default function PlannerScreen() {
   }, []);
 
   return (
-    <SafeAreaView edges={["left", "right", "bottom"]} style={{ flex: 1, backgroundColor: background }}>
+    <SafeAreaView edges={["left", "right"]} style={{ flex: 1, backgroundColor: background }}>
     <View style={[styles.container, { backgroundColor: background }]}>
       <BlurView
         intensity={40}
@@ -394,7 +394,10 @@ export default function PlannerScreen() {
 
       <ScrollView
         ref={scrollRef}
-        contentContainerStyle={[styles.scrollContent, { paddingTop: contentTopPadding }]}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingTop: contentTopPadding, paddingBottom: insets.bottom + 120 },
+        ]}
         contentInsetAdjustmentBehavior="never"
         showsVerticalScrollIndicator={false}
         onScroll={handleScroll}
