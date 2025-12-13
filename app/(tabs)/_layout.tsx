@@ -1,18 +1,23 @@
-import { useNavigation } from "@react-navigation/native";
 import { BlurView } from "expo-blur";
-import { Tabs } from "expo-router";
-import React, { useRef } from "react";
-import { Animated, LayoutChangeEvent } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { Href, Tabs, usePathname, useRouter } from "expo-router";
+import React, { useCallback, useEffect, useRef } from "react";
+import { Animated, LayoutChangeEvent } from "react-native";
 
 import { HapticTab } from "@/components/haptic-tab";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 
+const ROUTES = ["/index/index", "/tasks/tasks", "/planner/planner", "/calendar/calendar", "/settings/settings"] as const;
+const TAB_COUNT = ROUTES.length;
+const BUBBLE_WIDTH = 55;
+const HALF_BUBBLE = BUBBLE_WIDTH / 2;
+
 export default function TabLayout() {
   const colorScheme = useColorScheme();
   const dark = colorScheme === "dark";
-  const navigation = useNavigation();
+  const router = useRouter();
+  const pathname = usePathname();
   const blurTint = dark ? "systemChromeMaterialDark" : "systemChromeMaterialLight";
 
   // 🔵 Sliding bubble animation
@@ -20,41 +25,71 @@ export default function TabLayout() {
 
   // Width of the entire tab bar
   const tabWidth = useRef(0);
-  const TABS = 5;
+
+  const normalizePath = useCallback(
+    (path: string) => {
+      const withoutGroup = path.replace(/^\/\(tabs\)/, "") || "/index/index";
+      if (withoutGroup === "/") return "/index/index";
+      if (withoutGroup === "/index") return "/index/index";
+      return withoutGroup;
+    },
+    []
+  );
+
+  const animateToIndex = useCallback(
+    (index: number, animated = true) => {
+      if (tabWidth.current === 0) return;
+
+      const ITEM_WIDTH = tabWidth.current / TAB_COUNT;
+      const targetX = index * ITEM_WIDTH + ITEM_WIDTH / 2 - HALF_BUBBLE;
+
+      if (!animated) {
+        sliderX.setValue(targetX);
+        return;
+      }
+
+      Animated.spring(sliderX, {
+        toValue: targetX,
+        useNativeDriver: true,
+        speed: 12,
+        bounciness: 6,
+      }).start();
+    },
+    [sliderX]
+  );
+
+  const syncToRoute = useCallback(
+    (animated = true) => {
+      const normalized = normalizePath(pathname);
+      const routeIndex = ROUTES.findIndex((route) => route === normalized);
+      animateToIndex(routeIndex === -1 ? 0 : routeIndex, animated);
+    },
+    [animateToIndex, normalizePath, pathname]
+  );
 
   // 🔧 Fix initial off-centre bubble on first load
-  const onLayout = (event: LayoutChangeEvent) => {
-    tabWidth.current = event.nativeEvent.layout.width;
+  const onLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      tabWidth.current = event.nativeEvent.layout.width;
+      syncToRoute(false);
+    },
+    [syncToRoute]
+  );
 
-    const ITEM_WIDTH = tabWidth.current / TABS;
-    sliderX.setValue(ITEM_WIDTH / 2 - 27.5);
-  };
-
-  const routes = ["index/index", "tasks/tasks", "planner/planner", "calendar/calendar", "settings/settings"];
+  useEffect(() => {
+    syncToRoute(true);
+  }, [syncToRoute]);
 
   // Allow dragging across the tab bar to move the bubble and navigate on release
   const handleDrag = (locationX: number, release = false) => {
     if (!tabWidth.current) return;
-    const ITEM_WIDTH = tabWidth.current / TABS;
-    const clamped = Math.max(0, Math.min(TABS - 1, Math.floor(locationX / ITEM_WIDTH)));
-    sliderX.setValue(clamped * ITEM_WIDTH + ITEM_WIDTH / 2 - 27.5);
+    const ITEM_WIDTH = tabWidth.current / TAB_COUNT;
+    const clamped = Math.max(0, Math.min(TAB_COUNT - 1, Math.floor(locationX / ITEM_WIDTH)));
+    sliderX.setValue(clamped * ITEM_WIDTH + ITEM_WIDTH / 2 - HALF_BUBBLE);
     if (release) {
-      navigation.navigate(routes[clamped] as never);
+      const href = (`/(tabs)${ROUTES[clamped]}`) as Href;
+      router.navigate(href);
     }
-  };
-
-  // 🔧 Animate bubble when switching tabs
-  const animateTo = (index: number) => {
-    if (tabWidth.current === 0) return;
-
-    const ITEM_WIDTH = tabWidth.current / TABS;
-
-    Animated.spring(sliderX, {
-      toValue: index * ITEM_WIDTH + ITEM_WIDTH / 2 - 27.5,
-      useNativeDriver: true,
-      speed: 12,
-      bounciness: 6,
-    }).start();
   };
 
   return (
@@ -67,7 +102,7 @@ export default function TabLayout() {
         tabBarBackground: () => (
           <BlurView
             tint={blurTint}
-            intensity={90}
+            intensity={30}
             experimentalBlurMethod="dimezisBlurView"
             blurReductionFactor={1.25}
             onLayout={onLayout}
@@ -155,7 +190,7 @@ export default function TabLayout() {
             <HapticTab
               {...props}
               onPress={(e) => {
-                animateTo(0);
+                animateToIndex(0);
                 props.onPress?.(e);
               }}
             />
@@ -175,7 +210,7 @@ export default function TabLayout() {
             <HapticTab
               {...props}
               onPress={(e) => {
-                animateTo(1);
+                animateToIndex(1);
                 props.onPress?.(e);
               }}
             />
@@ -195,7 +230,7 @@ export default function TabLayout() {
             <HapticTab
               {...props}
               onPress={(e) => {
-                animateTo(2);
+                animateToIndex(2);
                 props.onPress?.(e);
               }}
             />
@@ -215,7 +250,7 @@ export default function TabLayout() {
             <HapticTab
               {...props}
               onPress={(e) => {
-                animateTo(3);
+                animateToIndex(3);
                 props.onPress?.(e);
               }}
             />
@@ -235,7 +270,7 @@ export default function TabLayout() {
             <HapticTab
               {...props}
               onPress={(e) => {
-                animateTo(4);
+                animateToIndex(4);
                 props.onPress?.(e);
               }}
             />

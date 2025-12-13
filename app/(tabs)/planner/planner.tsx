@@ -1,20 +1,28 @@
-import { addTask, getTasks } from "@/lib/database";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { addTask, getTasks } from "@/lib/database";
 import { updateAvailabilityWithFeedback } from "@/utils/availabilityFeedback";
 import { Ionicons } from "@expo/vector-icons";
-import { useScrollToTop } from "@react-navigation/native";
+import { useNavigation, useScrollToTop } from "@react-navigation/native";
 import { BlurView } from "expo-blur";
 import { router, useFocusEffect } from "expo-router";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Animated,
+  Dimensions,
+  Easing,
+  Keyboard,
+  KeyboardAvoidingView,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -36,6 +44,35 @@ type PlannedTask = Task & {
   estMinutes: number;
   energy: "deep" | "shallow";
 };
+
+type ChatMessage = {
+  id: string;
+  from: "user" | "bot";
+  text: string;
+};
+
+const TRAINING_SET: { prompt: string; response: string }[] = [
+  {
+    prompt: "what should i tackle first",
+    response: "Start with anything overdue or due today, then one deep-focus task, then clear a quick win.",
+  },
+  {
+    prompt: "study plan",
+    response: "Use 45–60 minute focus blocks with 10 minute breaks. Mix one tough topic with review or flashcards.",
+  },
+  {
+    prompt: "too many tasks",
+    response: "Pick one important task, one quick win, and one cleanup item. Defer or delete anything not due soon.",
+  },
+  {
+    prompt: "break down task",
+    response: "Split it into a research step, an outline/todo list, then one or two focused work blocks.",
+  },
+  {
+    prompt: "overwhelmed",
+    response: "Breathe, pick the smallest next step, and set a 20 minute timer. Progress beats perfection.",
+  },
+];
 
 // Parse stored date into a JS Date at midnight
 function parseDueDate(due: string | null | undefined) {
@@ -84,12 +121,31 @@ export default function PlannerScreen() {
   const scrollRef = useRef<ScrollView>(null);
   useScrollToTop(scrollRef);
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation();
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [showHeaderBlur, setShowHeaderBlur] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const chatAnim = useRef(new Animated.Value(0)).current;
+  const screenHeight = Dimensions.get("window").height;
+  const chatScrollRef = useRef<ScrollView>(null);
+  const [chatInput, setChatInput] = useState("");
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
+    {
+      id: "welcome",
+      from: "bot",
+      text: "Hi! Ask me what to tackle first, how to schedule your day, or to break down a task.",
+    },
+  ]);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const quickPrompts = [
+    "What should I tackle first today?",
+    "Draft a study plan for calculus.",
+    "Break down my tasks into steps.",
+  ];
 
   // Same global colours as the rest of the app
   const background = dark ? "#1C1C1E" : "#FFFFFF";
@@ -97,6 +153,8 @@ export default function PlannerScreen() {
   const border = dark ? "rgba(255,255,255,0.16)" : "rgba(150,150,150,0.2)";
   const text = dark ? "#FFFFFF" : "#000000";
   const subtle = dark ? "#9A9A9D" : "#6B6B6C";
+  const chatSheetBackground = dark ? "#0B1424" : "#FFFFFF";
+  const overlayColor = keyboardVisible ? chatSheetBackground : dark ? "rgba(0,0,0,0.75)" : "rgba(0,0,0,0.45)";
 
   const loadTasks = useCallback(async (showSpinner = false) => {
     try {
@@ -380,103 +438,203 @@ export default function PlannerScreen() {
     setShowHeaderBlur((prev) => (prev === shouldShow ? prev : shouldShow));
   }, []);
 
+  const openChat = useCallback(() => {
+    setChatOpen(true);
+  }, []);
+
+  const closeChat = useCallback(() => {
+    Animated.timing(chatAnim, {
+      toValue: 1,
+      duration: 220,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start(() => setChatOpen(false));
+  }, [chatAnim]);
+
+  useEffect(() => {
+    if (!chatOpen) return;
+    chatAnim.setValue(1);
+    Animated.timing(chatAnim, {
+      toValue: 0,
+      duration: 260,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [chatAnim, chatOpen]);
+
+  useEffect(() => {
+    if (!chatScrollRef.current) return;
+    chatScrollRef.current.scrollToEnd({ animated: true });
+  }, [chatMessages]);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSub = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    const parent = navigation.getParent?.();
+    if (!parent) return;
+    parent.setOptions({ tabBarStyle: chatOpen ? { display: "none" } : undefined });
+    return () => {
+      parent.setOptions({ tabBarStyle: undefined });
+    };
+  }, [navigation, chatOpen]);
+
+  const scorePrompt = useCallback((input: string) => {
+    const clean = input.toLowerCase();
+    return TRAINING_SET.map((item) => {
+      const words = item.prompt.split(/\s+/);
+      const hits = words.reduce((acc, w) => (clean.includes(w) ? acc + 1 : acc), 0);
+      return { item, score: hits };
+    }).sort((a, b) => b.score - a.score)[0];
+  }, []);
+
+  const generateBotReply = useCallback(
+    (input: string) => {
+      const best = scorePrompt(input);
+      if (best?.score && best.score > 0) return best.item.response;
+      if (/plan|schedule|today/i.test(input))
+        return "Start with one priority block, one quick win, then any overdue items. Keep blocks under 60 minutes.";
+      if (/task|break/i.test(input))
+        return "Break it into: clarify goal, list 3 steps, start with a 20 minute timer.";
+      return "I’m here to help with planning. Ask me what to do first, how to structure study time, or how to break tasks down.";
+    },
+    [scorePrompt]
+  );
+
+  const handleSendMessage = useCallback(() => {
+    const trimmed = chatInput.trim();
+    if (!trimmed) return;
+    const userMessage: ChatMessage = { id: `u-${Date.now()}`, from: "user", text: trimmed };
+    setChatMessages((prev) => [...prev, userMessage]);
+    setChatInput("");
+
+    const botText = generateBotReply(trimmed);
+    const botMessage: ChatMessage = { id: `b-${Date.now()}`, from: "bot", text: botText };
+    setTimeout(() => {
+      setChatMessages((prev) => [...prev, botMessage]);
+    }, 180);
+  }, [chatInput, generateBotReply]);
+
   return (
     <SafeAreaView edges={["left", "right"]} style={{ flex: 1, backgroundColor: background }}>
-    <View style={[styles.container, { backgroundColor: background }]}>
-      <BlurView
-        intensity={40}
-        tint={dark ? "dark" : "light"}
-        style={[
-          styles.blurHeader,
-          { height: headerHeight, opacity: showHeaderBlur ? 1 : 0 },
-        ]}
-      />
-
-      <ScrollView
-        ref={scrollRef}
-        contentContainerStyle={[
-          styles.scrollContent,
-          { paddingTop: contentTopPadding, paddingBottom: insets.bottom + 120 },
-        ]}
-        contentInsetAdjustmentBehavior="never"
-        showsVerticalScrollIndicator={false}
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => loadTasks(true)}
-            tintColor={dark ? "#FFF" : "#000"}
-          />
-        }
-      >
-        {/* HERO / CONTROL BAR */}
-        <View
+      <View style={[styles.container, { backgroundColor: background }]}>
+        <BlurView
+          intensity={40}
+          tint={dark ? "dark" : "light"}
           style={[
-            styles.hero,
-            {
-              backgroundColor: dark ? "#0B1B3A" : "#EAF3FF",
-              borderColor: dark ? "#163568" : "#C4D9FF",
-            },
+            styles.blurHeader,
+            { height: headerHeight, opacity: showHeaderBlur ? 1 : 0 },
           ]}
+        />
+
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingTop: contentTopPadding, paddingBottom: insets.bottom + 160 },
+          ]}
+          contentInsetAdjustmentBehavior="never"
+          showsVerticalScrollIndicator={false}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => loadTasks(true)}
+              tintColor={dark ? "#FFF" : "#000"}
+            />
+          }
         >
-          <View style={styles.heroTopRow}>
-            <View style={styles.badgeRow}>
-              <Text style={[styles.heroBadge, { color: "#0A84FF", borderColor: "#0A84FF" }]}>
-                Planner
-              </Text>
-              <Text style={[styles.heroBadge, { color: subtle, borderColor: border }]}>Local data</Text>
+          {/* HERO / CONTROL BAR */}
+          <View
+            style={[
+              styles.hero,
+              {
+                backgroundColor: dark ? "#0B1B3A" : "#EAF3FF",
+                borderColor: dark ? "#163568" : "#C4D9FF",
+              },
+            ]}
+          >
+            <View style={styles.heroTopRow}>
+              <View style={styles.badgeRow}>
+                <Text style={[styles.heroBadge, { color: "#0A84FF", borderColor: "#0A84FF" }]}>
+                  Planner
+                </Text>
+                <Text style={[styles.heroBadge, { color: subtle, borderColor: border }]}>Local data</Text>
+              </View>
+
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <TouchableOpacity
+                  onPress={openChat}
+                  activeOpacity={0.9}
+                  style={[
+                    styles.chatPrompt,
+                    { backgroundColor: dark ? "#10284D" : "#DCE9FF", borderColor: dark ? "#1C3F7A" : "#B7D0FF" },
+                  ]}
+                  accessibilityLabel="Open planning chat helper"
+                >
+                  <Ionicons name="chatbubbles-outline" size={18} color={dark ? "#F0F6FF" : "#0A84FF"} />
+                  <Text style={[styles.chatPromptText, { color: dark ? "#F0F6FF" : "#0A84FF" }]}>Ask planner</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => loadTasks(true)}
+                  style={[
+                    styles.refreshBtn,
+                    {
+                      backgroundColor: dark ? "#0A84FF22" : "#0A84FF1A",
+                      borderColor: dark ? "#0A84FF55" : "#0A84FF44",
+                    },
+                  ]}
+                >
+                  <Text style={[styles.refreshText, { color: "#0A84FF" }]}>Refresh plan</Text>
+                </TouchableOpacity>
+              </View>
             </View>
 
-            <TouchableOpacity
-              onPress={() => loadTasks(true)}
-              style={[
-                styles.refreshBtn,
-                {
-                  backgroundColor: dark ? "#0A84FF22" : "#0A84FF1A",
-                  borderColor: dark ? "#0A84FF55" : "#0A84FF44",
-                },
-              ]}
-            >
-              <Text style={[styles.refreshText, { color: "#0A84FF" }]}>Refresh plan</Text>
-            </TouchableOpacity>
-          </View>
+            <Text style={[styles.heroTitle, { color: text }]}>Plan for today</Text>
+            <Text style={[styles.heroCopy, { color: subtle }]}>
+              Built from your tasks using due dates and effort to set the order.
+            </Text>
 
-          <Text style={[styles.heroTitle, { color: text }]}>Plan for today</Text>
-          <Text style={[styles.heroCopy, { color: subtle }]}>
-            Built from your tasks using due dates and effort to set the order.
-          </Text>
-
-          <View style={styles.heroStatsRow}>
-            <TouchableOpacity
-              style={[styles.heroStat, { backgroundColor: dark ? "#12284F" : "#F4F8FF" }]}
-              activeOpacity={0.85}
-              onPress={() => goToFilter("open")}
-            >
-              <Text style={[styles.heroStatLabel, { color: subtle }]}>Open</Text>
-              <Text style={[styles.heroStatValue, { color: text }]}>{stats.open}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.heroStat, { backgroundColor: dark ? "#2B1A1A" : "#FFF3F3" }]}
-              activeOpacity={0.85}
-              onPress={() => goToFilter("overdue")}
-            >
-              <Text style={[styles.heroStatLabel, { color: subtle }]}>Overdue</Text>
-              <Text style={[styles.heroStatValue, { color: text }]}>{stats.overdue}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.heroStat, { backgroundColor: dark ? "#1B2E1F" : "#F2FFF5" }]}
-              activeOpacity={0.85}
-              onPress={() => goToFilter("next3")}
-            >
-              <Text style={[styles.heroStatLabel, { color: subtle }]}>Due soon</Text>
-              <Text style={[styles.heroStatValue, { color: text }]}>{stats.dueSoon}</Text>
-            </TouchableOpacity>
+            <View style={styles.heroStatsRow}>
+              <TouchableOpacity
+                style={[styles.heroStat, { backgroundColor: dark ? "#12284F" : "#F4F8FF" }]}
+                activeOpacity={0.85}
+                onPress={() => goToFilter("open")}
+              >
+                <Text style={[styles.heroStatLabel, { color: subtle }]}>Open</Text>
+                <Text style={[styles.heroStatValue, { color: text }]}>{stats.open}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.heroStat, { backgroundColor: dark ? "#2B1A1A" : "#FFF3F3" }]}
+                activeOpacity={0.85}
+                onPress={() => goToFilter("overdue")}
+              >
+                <Text style={[styles.heroStatLabel, { color: subtle }]}>Overdue</Text>
+                <Text style={[styles.heroStatValue, { color: text }]}>{stats.overdue}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.heroStat, { backgroundColor: dark ? "#1B2E1F" : "#F2FFF5" }]}
+                activeOpacity={0.85}
+                onPress={() => goToFilter("next3")}
+              >
+                <Text style={[styles.heroStatLabel, { color: subtle }]}>Due soon</Text>
+                <Text style={[styles.heroStatValue, { color: text }]}>{stats.dueSoon}</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={[styles.metaText, { color: subtle }]}>
+              {lastRefresh ? `Updated ${lastRefresh.toLocaleTimeString()}` : "Waiting to load tasks"}
+            </Text>
           </View>
-          <Text style={[styles.metaText, { color: subtle }]}>
-        {lastRefresh ? `Updated ${lastRefresh.toLocaleTimeString()}` : "Waiting to load tasks"}
-      </Text>
-    </View>
 
         {overdueTasks.length > 0 && (
           <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
@@ -672,7 +830,151 @@ export default function PlannerScreen() {
           </Text>
         </View>
       </ScrollView>
-    </View>
+        {/* Floating chat button */}
+        <TouchableOpacity
+          activeOpacity={0.92}
+          style={[
+            styles.chatFab,
+            {
+              backgroundColor: dark ? "#0A84FF" : "#0A84FF",
+              shadowColor: "#0A84FF",
+              bottom: insets.bottom + 90,
+            },
+          ]}
+          onPress={openChat}
+          accessibilityLabel="Open planner chat helper"
+        >
+          <Ionicons name="chatbubbles" size={24} color="#fff" />
+          <Text style={styles.chatFabText}>Chat</Text>
+        </TouchableOpacity>
+
+        {chatOpen && (
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+            <View
+              style={[
+                styles.chatOverlay,
+                { backgroundColor: overlayColor },
+              ]}
+            >
+            <KeyboardAvoidingView
+              behavior={Platform.OS === "ios" ? "padding" : undefined}
+              style={{ flex: 1 }}
+              keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
+            >
+                <Animated.View
+                  style={[
+                    styles.chatSheet,
+                    {
+                      backgroundColor: chatSheetBackground,
+                      width: "100%",
+                      flex: 1,
+                      paddingTop: insets.top + 10,
+                      paddingBottom: Math.max(insets.bottom, 16) + 16, // sit well above tab bar
+                      transform: [
+                        {
+                          translateY: chatAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0, screenHeight],
+                            extrapolate: "clamp",
+                          }),
+                        },
+                      ],
+                    },
+                  ]}
+                >
+                  <View style={styles.chatSheetHeader}>
+                    <View style={[styles.chatGrabber, { backgroundColor: dark ? "#2A3A53" : "#E2E7F1" }]} />
+                  </View>
+
+                  <View style={styles.chatHeader}>
+                    <View>
+                      <Text style={[styles.chatTitle, { color: text }]}>Planner assistant</Text>
+                      <Text style={[styles.chatSubtitle, { color: subtle }]}>
+                        Ask for study tips, draft tasks, or sequence your day.
+                      </Text>
+                    </View>
+                    <TouchableOpacity onPress={closeChat} hitSlop={12}>
+                      <Ionicons name="close" size={22} color={subtle} />
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={[styles.chatBubble, { backgroundColor: dark ? "#132743" : "#F1F6FF" }]}>
+                    <Ionicons name="sparkles" size={16} color="#0A84FF" style={{ marginRight: 6 }} />
+                    <Text style={[styles.chatText, { color: text }]}>
+                      Try: “What should I tackle first today?” or “Draft a study plan for calculus.”
+                    </Text>
+                  </View>
+
+                  <View style={styles.chatQuickRow}>
+                    {quickPrompts.map((prompt) => (
+                      <TouchableOpacity
+                        key={prompt}
+                        onPress={() => setChatInput(prompt)}
+                        style={[
+                          styles.chatChip,
+                          { backgroundColor: dark ? "#1C2D47" : "#EDF3FF", borderColor: dark ? "#2C3D5B" : "#D5E4FF" },
+                        ]}
+                        activeOpacity={0.9}
+                      >
+                        <Text style={[styles.chatChipText, { color: dark ? "#D9E6FF" : "#0A84FF" }]} numberOfLines={1}>
+                          {prompt}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  <View style={styles.chatBody}>
+                    <ScrollView
+                      ref={chatScrollRef}
+                      keyboardShouldPersistTaps="handled"
+                      contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 24, gap: 10, flexGrow: 1 }}
+                      showsVerticalScrollIndicator={false}
+                    >
+                      {chatMessages.map((msg) => (
+                        <View
+                          key={msg.id}
+                          style={[
+                            styles.chatRow,
+                            msg.from === "user" ? styles.chatRowUser : styles.chatRowBot,
+                          ]}
+                        >
+                          <Text style={[styles.chatRowText, { color: msg.from === "user" ? "#fff" : text }]}>
+                            {msg.text}
+                          </Text>
+                        </View>
+                      ))}
+                    </ScrollView>
+                  </View>
+
+                  <View style={[styles.chatInputBar, { marginBottom: Math.max(insets.bottom + 24, 48) }]}>
+                    <Ionicons name="chatbubble-ellipses-outline" size={18} color={subtle} />
+                    <TextInput
+                      placeholder="Type a question..."
+                      placeholderTextColor={subtle}
+                      style={[styles.chatTextInput, { color: text }]}
+                      value={chatInput}
+                      onChangeText={setChatInput}
+                      onSubmitEditing={handleSendMessage}
+                      returnKeyType="send"
+                      multiline
+                    />
+                    <TouchableOpacity
+                      onPress={handleSendMessage}
+                      disabled={!chatInput.trim()}
+                      style={[
+                        styles.chatSendMock,
+                        { opacity: chatInput.trim() ? 1 : 0.4 },
+                      ]}
+                    >
+                      <Ionicons name="send" size={16} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
+                </Animated.View>
+              </KeyboardAvoidingView>
+            </View>
+          </TouchableWithoutFeedback>
+        )}
+      </View>
     </SafeAreaView>
   );
 }
@@ -801,8 +1103,11 @@ const styles = StyleSheet.create({
   },
   heroTopRow: {
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    alignItems: "flex-start",
+    justifyContent: "flex-start",
+    flexWrap: "wrap",
+    columnGap: 10,
+    rowGap: 8,
   },
   badgeRow: {
     flexDirection: "row",
@@ -893,6 +1198,168 @@ const styles = StyleSheet.create({
   countBadge: {
     fontSize: 12,
     fontWeight: "700",
+  },
+  chatPrompt: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  chatPromptText: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  chatFab: {
+    position: "absolute",
+    right: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 30,
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
+  },
+  chatFabText: {
+    color: "#fff",
+    fontWeight: "800",
+    fontSize: 14,
+  },
+  chatOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: "flex-start",
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    flex: 1,
+  },
+  chatSheet: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    paddingHorizontal: 16,
+    gap: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: -2 },
+    elevation: 8,
+  },
+  chatSheetHeader: {
+    alignItems: "center",
+    paddingBottom: 4,
+  },
+  chatGrabber: {
+    width: 46,
+    height: 5,
+    borderRadius: 3,
+  },
+  chatHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingBottom: 6,
+  },
+  chatTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  chatSubtitle: {
+    fontSize: 13,
+  },
+  chatBubble: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    borderRadius: 12,
+    gap: 6,
+  },
+  chatText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  chatQuickRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  chatChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  chatChipText: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  chatBody: {
+    flex: 1,
+    minHeight: 140,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.06)",
+    paddingVertical: 12,
+    marginTop: 6,
+    overflow: "hidden",
+  },
+  chatRow: {
+    maxWidth: "90%",
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+  },
+  chatRowUser: {
+    alignSelf: "flex-end",
+    backgroundColor: "#0A84FF",
+    shadowColor: "#0A84FF",
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  chatRowBot: {
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(10,132,255,0.08)",
+  },
+  chatRowText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  chatInputBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderColor: "rgba(0,0,0,0.08)",
+    backgroundColor: "#F7F8FB",
+  },
+  chatTextInput: {
+    flex: 1,
+    fontSize: 14,
+    minHeight: 40,
+    paddingVertical: 4,
+  },
+  chatSendMock: {
+    width: 30,
+    height: 30,
+    borderRadius: 16,
+    backgroundColor: "#0A84FF",
+    alignItems: "center",
+    justifyContent: "center",
   },
 });
 
