@@ -51,6 +51,12 @@ type ChatMessage = {
   text: string;
 };
 
+const INITIAL_CHAT_MESSAGE: ChatMessage = {
+  id: "welcome",
+  from: "bot",
+  text: "Hi! Ask me what to tackle first, how to schedule your day, or to break down a task.",
+};
+
 const TRAINING_SET: { prompt: string; response: string }[] = [
   {
     prompt: "what should i tackle first",
@@ -133,19 +139,8 @@ export default function PlannerScreen() {
   const screenHeight = Dimensions.get("window").height;
   const chatScrollRef = useRef<ScrollView>(null);
   const [chatInput, setChatInput] = useState("");
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    {
-      id: "welcome",
-      from: "bot",
-      text: "Hi! Ask me what to tackle first, how to schedule your day, or to break down a task.",
-    },
-  ]);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([INITIAL_CHAT_MESSAGE]);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
-  const quickPrompts = [
-    "What should I tackle first today?",
-    "Draft a study plan for calculus.",
-    "Break down my tasks into steps.",
-  ];
 
   // Same global colours as the rest of the app
   const background = dark ? "#1C1C1E" : "#FFFFFF";
@@ -522,6 +517,11 @@ export default function PlannerScreen() {
       setChatMessages((prev) => [...prev, botMessage]);
     }, 180);
   }, [chatInput, generateBotReply]);
+
+  const handleClearChat = useCallback(() => {
+    setChatMessages([INITIAL_CHAT_MESSAGE]);
+    setChatInput("");
+  }, []);
 
   return (
     <SafeAreaView edges={["left", "right"]} style={{ flex: 1, backgroundColor: background }}>
@@ -906,21 +906,18 @@ export default function PlannerScreen() {
                   </View>
 
                   <View style={styles.chatQuickRow}>
-                    {quickPrompts.map((prompt) => (
-                      <TouchableOpacity
-                        key={prompt}
-                        onPress={() => setChatInput(prompt)}
-                        style={[
-                          styles.chatChip,
-                          { backgroundColor: dark ? "#1C2D47" : "#EDF3FF", borderColor: dark ? "#2C3D5B" : "#D5E4FF" },
-                        ]}
-                        activeOpacity={0.9}
-                      >
-                        <Text style={[styles.chatChipText, { color: dark ? "#D9E6FF" : "#0A84FF" }]} numberOfLines={1}>
-                          {prompt}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
+                    <TouchableOpacity
+                      onPress={handleClearChat}
+                      style={[
+                        styles.chatChip,
+                        { backgroundColor: dark ? "#1C2D47" : "#EDF3FF", borderColor: dark ? "#2C3D5B" : "#D5E4FF" },
+                      ]}
+                      activeOpacity={0.9}
+                    >
+                      <Text style={[styles.chatChipText, { color: dark ? "#D9E6FF" : "#0A84FF" }]}>
+                        Clear chat
+                      </Text>
+                    </TouchableOpacity>
                   </View>
 
                   <View style={styles.chatBody}>

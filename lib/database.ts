@@ -11,6 +11,18 @@ export type UserProfile = {
   created_at?: string | null;
 };
 
+export type TaskRow = {
+  id: number;
+  title: string;
+  subject: string | null;
+  difficulty: "easy" | "medium" | "hard" | null;
+  due_date: string | null;
+  notes: string | null;
+  completed: number;
+  created_at: string;
+  user_id: number | null;
+};
+
 // Open database
 export const db = openDatabaseSync("tasks.db");
 
@@ -253,9 +265,10 @@ export async function addTask(task: {
 export async function getTasks() {
   const userId = await getActiveUserId();
   if (!userId) return [];
-  const result = await db.getAllAsync("SELECT * FROM tasks WHERE user_id = ? ORDER BY created_at DESC", [
-    userId,
-  ]);
+  const result = await db.getAllAsync<TaskRow>(
+    "SELECT * FROM tasks WHERE user_id = ? ORDER BY created_at DESC",
+    [userId]
+  );
   return result;
 }
 
@@ -263,10 +276,10 @@ export async function getTasks() {
 export async function getTask(id: number) {
   const userId = await getActiveUserId();
   if (!userId) return null;
-  const result = await db.getFirstAsync("SELECT * FROM tasks WHERE id = ? AND user_id = ?", [
-    id,
-    userId,
-  ]);
+  const result = await db.getFirstAsync<TaskRow>(
+    "SELECT * FROM tasks WHERE id = ? AND user_id = ?",
+    [id, userId]
+  );
   return result;
 }
 

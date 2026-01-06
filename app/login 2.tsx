@@ -1,5 +1,5 @@
 import { LinearGradient } from "expo-linear-gradient";
-import { router } from "expo-router";
+import { router, type Href } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -32,8 +32,8 @@ export default function LoginScreen() {
   const colors = useMemo(
     () =>
       dark
-        ? ["#0f172a", "#111827", "#0b1324"]
-        : ["#eef2ff", "#e0e7ff", "#e5e7eb"],
+        ? ["#0f172a", "#111827", "#0b1324"] as const
+        : ["#eef2ff", "#e0e7ff", "#e5e7eb"] as const,
     [dark]
   );
 
@@ -45,7 +45,7 @@ export default function LoginScreen() {
 
   useEffect(() => {
     if (user) {
-      router.replace("/(tabs)");
+      router.replace("/(tabs)" as Href);
     }
   }, [user]);
 
@@ -86,7 +86,7 @@ export default function LoginScreen() {
       return;
     }
 
-    router.replace("/(tabs)");
+    router.replace("/(tabs)" as Href);
   };
 
   const cardBackground = dark ? "#0b1220" : "#ffffff";
