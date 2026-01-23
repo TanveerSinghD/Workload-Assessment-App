@@ -584,6 +584,8 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: 16,
     marginBottom: 12,
+    justifyContent: "center",
+    alignItems: "center",
   },
   quickChip: {
     paddingHorizontal: 14,
