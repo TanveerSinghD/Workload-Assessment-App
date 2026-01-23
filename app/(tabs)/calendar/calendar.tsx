@@ -1,12 +1,12 @@
-import { getTasks } from "@/lib/database";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { getTasks } from "@/lib/database";
 import { updateAvailabilityWithFeedback } from "@/utils/availabilityFeedback";
+import { useScrollToTop } from "@react-navigation/native";
 import { BlurView } from "expo-blur";
 import { Link, router, useFocusEffect } from "expo-router";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Alert, Modal, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Calendar } from "react-native-calendars";
-import { useScrollToTop } from "@react-navigation/native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Task = {
@@ -262,9 +262,17 @@ export default function CalendarScreen() {
         }
       >
         {/* HEADER */}
-        <View style={styles.headerRow}>
-          <TouchableOpacity onPress={goPrevMonth}>
-            <Text style={[styles.arrow, { color: isDark ? "#FFF" : "#007AFF" }]}>
+        <View
+          style={[
+            styles.headerRow,
+            {
+              backgroundColor: isDark ? "#1F1F23" : "#F7F8FA",
+              borderColor: isDark ? "#2C2C2E" : "#E5E5EA",
+            },
+          ]}
+        >
+          <TouchableOpacity onPress={goPrevMonth} style={styles.arrowButton}>
+            <Text style={[styles.arrow, { color: isDark ? "#FFFFFF" : "#007AFF" }]}>
               {"<"}
             </Text>
           </TouchableOpacity>
@@ -278,7 +286,7 @@ export default function CalendarScreen() {
             <Text
               style={[
                 styles.headerText,
-                { color: isDark ? "#FFF" : "#007AFF" },
+                { color: isDark ? "#FFFFFF" : "#0A84FF" },
               ]}
             >
               {year}
@@ -294,15 +302,15 @@ export default function CalendarScreen() {
             <Text
               style={[
                 styles.headerText,
-                { color: isDark ? "#FFF" : "#007AFF" },
+                { color: isDark ? "#FFFFFF" : "#0A84FF" },
               ]}
             >
               {months[month - 1]}
             </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={goNextMonth}>
-            <Text style={[styles.arrow, { color: isDark ? "#FFF" : "#007AFF" }]}>
+          <TouchableOpacity onPress={goNextMonth} style={styles.arrowButton}>
+            <Text style={[styles.arrow, { color: isDark ? "#FFFFFF" : "#007AFF" }]}>
               {">"}
             </Text>
           </TouchableOpacity>
@@ -575,9 +583,18 @@ const styles = StyleSheet.create({
   headerRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    paddingHorizontal: 24,
+    paddingHorizontal: 20,
     alignItems: "center",
-    marginBottom: 10,
+    marginHorizontal: 16,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingVertical: 6,
+  },
+  arrowButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 10,
   },
   quickRow: {
     flexDirection: "row",
@@ -626,8 +643,8 @@ const styles = StyleSheet.create({
   },
 
   headerText: {
-    fontSize: 22,
-    fontWeight: "700",
+    fontSize: 20,
+    fontWeight: "800",
   },
 
   taskListContainer: {
