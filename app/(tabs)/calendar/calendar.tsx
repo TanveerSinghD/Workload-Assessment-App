@@ -1,12 +1,12 @@
-import { useColorScheme } from "@/hooks/use-color-scheme";
 import { getTasks } from "@/lib/database";
+import { useColorScheme } from "@/hooks/use-color-scheme";
 import { updateAvailabilityWithFeedback } from "@/utils/availabilityFeedback";
-import { useScrollToTop } from "@react-navigation/native";
 import { BlurView } from "expo-blur";
 import { Link, router, useFocusEffect } from "expo-router";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Alert, Modal, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Calendar } from "react-native-calendars";
+import { useScrollToTop } from "@react-navigation/native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Task = {
@@ -583,13 +583,16 @@ const styles = StyleSheet.create({
   headerRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     alignItems: "center",
     marginHorizontal: 16,
     marginBottom: 14,
     borderWidth: 1,
     borderRadius: 16,
     paddingVertical: 6,
+    alignSelf: "center",
+    width: "90%",
+    maxWidth: 360,
   },
   arrowButton: {
     paddingVertical: 6,
