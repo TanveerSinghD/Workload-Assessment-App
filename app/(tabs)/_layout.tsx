@@ -23,6 +23,9 @@ export default function TabLayout() {
   // 🔵 Sliding bubble animation
   const sliderX = useRef(new Animated.Value(0)).current;
 
+  // Flag to suppress tab press after a long-press quick action
+  const taskQuickActionTriggered = useRef(false);
+
   // Width of the entire tab bar
   const tabWidth = useRef(0);
 
@@ -209,7 +212,17 @@ export default function TabLayout() {
           tabBarButton: (props) => (
             <HapticTab
               {...props}
+              delayLongPress={320}
+              onLongPress={(e) => {
+                taskQuickActionTriggered.current = true;
+                router.push("/add-assignment");
+                props.onLongPress?.(e);
+              }}
               onPress={(e) => {
+                if (taskQuickActionTriggered.current) {
+                  taskQuickActionTriggered.current = false;
+                  return;
+                }
                 animateToIndex(1);
                 props.onPress?.(e);
               }}
