@@ -12,6 +12,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 type Task = {
   id: number;
   title: string;
+  subject: string | null;
   notes: string | null;
   difficulty: "easy" | "medium" | "hard";
   due_date: string;
@@ -27,6 +28,7 @@ export default function CalendarScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const [assignments, setAssignments] = useState<Task[]>([]);
+  const [course, setCourse] = useState<string>("all");
   const [difficulty, setDifficulty] = useState<"all" | "easy" | "medium" | "hard">("all");
   const [showCompleted, setShowCompleted] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -44,6 +46,20 @@ export default function CalendarScreen() {
   const [showYearPicker, setShowYearPicker] = useState(false);
   const [showMonthPicker, setShowMonthPicker] = useState(false);
   const headerHeight = insets.top + 8;
+
+  const formatDateLabel = useCallback(
+    (dateStr: string) => {
+      const date = new Date(dateStr + "T00:00:00");
+      if (dateStr === todayStr) return "Today";
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const tomorrowStr = tomorrow.toISOString().split("T")[0];
+      if (dateStr === tomorrowStr) return "Tomorrow";
+
+      return date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+    },
+    [today, todayStr]
+  );
 
   // LIVE REFRESH WHEN SCREEN FOCUSES
   const loadTasks = useCallback(async (showSpinner = false) => {
@@ -77,13 +93,26 @@ export default function CalendarScreen() {
     []
   );
 
+  const courses = useMemo(() => {
+    const unique = new Set<string>();
+    assignments.forEach((t) => {
+      const subject = (t.subject || "").trim();
+      if (subject) unique.add(subject);
+    });
+    return ["all", ...Array.from(unique).sort()];
+  }, [assignments]);
+
   const filteredAssignments = useMemo(() => {
     return assignments.filter((t) => {
       if (!showCompleted && t.completed) return false;
       if (difficulty !== "all" && t.difficulty !== difficulty) return false;
+      if (course !== "all") {
+        const subject = (t.subject || "").trim() || "Unassigned";
+        if (subject !== course) return false;
+      }
       return true;
     });
-  }, [assignments, difficulty, showCompleted]);
+  }, [assignments, course, difficulty, showCompleted]);
 
   const markedDates = useMemo(() => {
     const marks: Record<string, any> = {};
@@ -93,14 +122,16 @@ export default function CalendarScreen() {
       if (!d) return;
 
       const dots = marks[d]?.dots ? [...marks[d].dots] : [];
-      const dotColor = difficultyDot[task.difficulty];
-      if (!dots.find((dot: any) => dot.key === task.difficulty)) {
-        dots.push({ key: task.difficulty, color: dotColor });
+      const diffKey = task.difficulty || "medium";
+      const dotColor = difficultyDot[diffKey];
+      if (!dots.find((dot: any) => dot.key === diffKey)) {
+        dots.push({ key: diffKey, color: dotColor });
       }
 
       marks[d] = {
         ...marks[d],
         dots,
+        marked: true,
       };
     });
 
@@ -122,19 +153,30 @@ export default function CalendarScreen() {
     return marks;
   }, [filteredAssignments, difficultyDot, selectedDate, todayStr]);
 
-  const assignmentsForDay = useMemo(() => {
+  const agendaDays = useMemo(() => {
+    const dates: string[] = [];
     if (selectedDate) {
-      return filteredAssignments.filter((a) => a.due_date === selectedDate);
+      dates.push(selectedDate);
+    } else {
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(today);
+        d.setDate(d.getDate() + i);
+        dates.push(d.toISOString().split("T")[0]);
+      }
     }
-    // agenda-style view: next 7 days (including today)
-    const next7 = new Date(today);
-    next7.setDate(next7.getDate() + 7);
-    const next7Str = next7.toISOString().split("T")[0];
 
-    return filteredAssignments
-      .filter((a) => a.due_date && a.due_date >= todayStr && a.due_date <= next7Str)
-      .sort((a, b) => a.due_date.localeCompare(b.due_date));
-  }, [filteredAssignments, selectedDate, today, todayStr]);
+    return dates.map((dateStr) => {
+      const items = filteredAssignments
+        .filter((a) => a.due_date === dateStr)
+        .sort((a, b) => a.due_date.localeCompare(b.due_date));
+      return { date: dateStr, label: formatDateLabel(dateStr), items };
+    });
+  }, [filteredAssignments, formatDateLabel, selectedDate, today]);
+
+  const hasAgendaItems = useMemo(
+    () => agendaDays.some((d) => d.items.length > 0),
+    [agendaDays]
+  );
 
   const currentMonthStr = `${year}-${String(month).padStart(2, "0")}-01`;
 
@@ -266,45 +308,99 @@ export default function CalendarScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* QUICK JUMPS */}
+        <View style={styles.quickRow}>
+          <TouchableOpacity
+            onPress={() => {
+              setYear(today.getFullYear());
+              setMonth(today.getMonth() + 1);
+              setSelectedDate(todayStr);
+            }}
+            style={[styles.quickChip, { backgroundColor: isDark ? "#2C2C2E" : "#F2F2F7" }]}
+          >
+            <Text style={[styles.quickText, { color: isDark ? "#FFF" : "#111" }]}>Today</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => {
+              setYear(today.getFullYear());
+              setMonth(today.getMonth() + 1);
+              resetSelected();
+            }}
+            style={[styles.quickChip, { backgroundColor: isDark ? "#2C2C2E" : "#F2F2F7" }]}
+          >
+            <Text style={[styles.quickText, { color: isDark ? "#FFF" : "#111" }]}>This week</Text>
+          </TouchableOpacity>
+        </View>
+
         {/* FILTERS */}
-        <View style={styles.filterRow}>
-          {(["all", "easy", "medium", "hard"] as const).map((level) => (
+        <View style={styles.filterSection}>
+          <Text style={[styles.filterLabel, { color: isDark ? "#D0D0D0" : "#444" }]}>Priority</Text>
+          <View style={styles.filterRow}>
+            {(["all", "easy", "medium", "hard"] as const).map((level) => (
+              <TouchableOpacity
+                key={level}
+                onPress={() => setDifficulty(level)}
+                style={[
+                  styles.filterChip,
+                  {
+                    borderColor: difficulty === level ? "#0A84FF" : "#ccc",
+                    backgroundColor: difficulty === level ? "#0A84FF22" : "transparent",
+                  },
+                ]}
+              >
+                <Text style={{ color: isDark ? "#FFF" : "#000", fontWeight: "700" }}>
+                  {level === "all"
+                    ? "All"
+                    : level === "easy"
+                    ? "Low"
+                    : level === "medium"
+                    ? "Medium"
+                    : "High"}
+                </Text>
+              </TouchableOpacity>
+            ))}
             <TouchableOpacity
-              key={level}
-              onPress={() => setDifficulty(level)}
+              onPress={() => setShowCompleted((p) => !p)}
               style={[
                 styles.filterChip,
                 {
-                  borderColor: difficulty === level ? "#0A84FF" : "#ccc",
-                  backgroundColor: difficulty === level ? "#0A84FF22" : "transparent",
+                  borderColor: showCompleted ? "#34C759" : "#ccc",
+                  backgroundColor: showCompleted ? "#34C75922" : "transparent",
                 },
               ]}
             >
               <Text style={{ color: isDark ? "#FFF" : "#000", fontWeight: "700" }}>
-                {level === "all"
-                  ? "All"
-                  : level === "easy"
-                  ? "Easy"
-                  : level === "medium"
-                  ? "Medium"
-                  : "Hard"}
+                {showCompleted ? "Showing done" : "Open only"}
               </Text>
             </TouchableOpacity>
-          ))}
-          <TouchableOpacity
-            onPress={() => setShowCompleted((p) => !p)}
-            style={[
-              styles.filterChip,
-              {
-                borderColor: showCompleted ? "#34C759" : "#ccc",
-                backgroundColor: showCompleted ? "#34C75922" : "transparent",
-              },
-            ]}
-          >
-            <Text style={{ color: isDark ? "#FFF" : "#000", fontWeight: "700" }}>
-              {showCompleted ? "Showing done" : "Open only"}
-            </Text>
-          </TouchableOpacity>
+          </View>
+
+          {courses.length > 1 && (
+            <>
+              <Text style={[styles.filterLabel, { color: isDark ? "#D0D0D0" : "#444" }]}>
+                Course
+              </Text>
+              <View style={styles.filterRow}>
+                {courses.map((c) => (
+                  <TouchableOpacity
+                    key={c}
+                    onPress={() => setCourse(c)}
+                    style={[
+                      styles.filterChip,
+                      {
+                        borderColor: course === c ? "#FF9F0A" : "#ccc",
+                        backgroundColor: course === c ? "#FF9F0A22" : "transparent",
+                      },
+                    ]}
+                  >
+                    <Text style={{ color: isDark ? "#FFF" : "#000", fontWeight: "700" }}>
+                      {c === "all" ? "All courses" : c}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </>
+          )}
         </View>
 
         {/* CALENDAR */}
@@ -336,37 +432,75 @@ export default function CalendarScreen() {
 
         {/* TASK LIST / AGENDA */}
         <View style={styles.taskListContainer}>
-          <Text style={[styles.agendaTitle, { color: isDark ? "#FFF" : "#111" }]}>
-            {selectedDate ? `Tasks for ${selectedDate}` : "Next 7 days"}
-          </Text>
-          {assignmentsForDay.length === 0 ? (
+          <View style={styles.agendaHeaderRow}>
+            <Text style={[styles.agendaTitle, { color: isDark ? "#FFF" : "#111" }]}>
+              {selectedDate ? `Tasks for ${formatDateLabel(selectedDate)}` : "This week"}
+            </Text>
+            {selectedDate && (
+              <TouchableOpacity onPress={resetSelected}>
+                <Text style={{ color: "#0A84FF", fontWeight: "700" }}>Clear</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {!hasAgendaItems ? (
             <Text style={[styles.noTasksText, { color: isDark ? "#BBB" : "#666" }]}>
               {selectedDate ? "No assignments due." : "No upcoming tasks in the next 7 days."}
             </Text>
           ) : (
-            assignmentsForDay.map((item) => (
-              <Link
-                key={item.id}
-                href={{ pathname: "/edit-task", params: { id: item.id } }}
-                asChild
-              >
-                <TouchableOpacity
-                  style={styles.taskCard}
-                  onLongPress={() => handleQuickActions(item)}
-                  activeOpacity={0.85}
-                >
-                  <View style={styles.taskHeaderRow}>
-                    <View
-                      style={[
-                        styles.dot,
-                        { backgroundColor: difficultyDot[item.difficulty] },
-                      ]}
-                    />
-                    <Text style={styles.taskTitle}>{item.title}</Text>
-                  </View>
-                  <Text style={styles.taskDue}>Due {item.due_date}</Text>
-                </TouchableOpacity>
-              </Link>
+            agendaDays.map((day) => (
+              <View key={day.date} style={[styles.agendaDayBlock, { borderColor: isDark ? "#2C2C2E" : "#E5E5EA" }]}>
+                <View style={styles.agendaDayHeader}>
+                  <Text style={[styles.agendaDayLabel, { color: isDark ? "#FFF" : "#111" }]}>
+                    {day.label}
+                  </Text>
+                  <Text style={[styles.agendaMeta, { color: isDark ? "#AAA" : "#555" }]}>
+                    {day.items.length} {day.items.length === 1 ? "task" : "tasks"}
+                  </Text>
+                </View>
+
+                {day.items.length === 0 ? (
+                  <Text style={[styles.noTasksText, { color: isDark ? "#777" : "#888" }]}>
+                    No tasks for this day.
+                  </Text>
+                ) : (
+                  day.items.map((item) => (
+                    <Link
+                      key={item.id}
+                      href={{ pathname: "/edit-task", params: { id: item.id } }}
+                      asChild
+                    >
+                      <TouchableOpacity
+                        style={[styles.taskCard, { backgroundColor: isDark ? "#2C2C2E" : "#F2F2F7" }]}
+                        onLongPress={() => handleQuickActions(item)}
+                        activeOpacity={0.85}
+                      >
+                        <View style={styles.taskHeaderRow}>
+                          <View
+                            style={[
+                              styles.dot,
+                              { backgroundColor: difficultyDot[item.difficulty || "medium"] },
+                            ]}
+                          />
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.taskTitle, { color: isDark ? "#FFF" : "#111" }]}>
+                              {item.title}
+                            </Text>
+                            {!!item.subject && (
+                              <Text style={[styles.taskMeta, { color: isDark ? "#AAA" : "#555" }]}>
+                                {item.subject}
+                              </Text>
+                            )}
+                          </View>
+                        </View>
+                        <Text style={[styles.taskDue, { color: isDark ? "#BBB" : "#666" }]}>
+                          Due {item.due_date}
+                        </Text>
+                      </TouchableOpacity>
+                    </Link>
+                  ))
+                )}
+              </View>
             ))
           )}
         </View>
@@ -445,12 +579,35 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 10,
   },
+  quickRow: {
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  quickChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  quickText: {
+    fontWeight: "700",
+    fontSize: 15,
+  },
+  filterSection: {
+    paddingHorizontal: 16,
+    marginBottom: 8,
+    gap: 6,
+  },
+  filterLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    textTransform: "uppercase",
+  },
   filterRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
-    paddingHorizontal: 16,
-    marginBottom: 12,
   },
 
   filterChip: {
@@ -475,6 +632,12 @@ const styles = StyleSheet.create({
     padding: 16,
   },
 
+  agendaHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
   noTasksText: {
     fontSize: 16,
   },
@@ -482,11 +645,29 @@ const styles = StyleSheet.create({
   agendaTitle: {
     fontSize: 16,
     fontWeight: "700",
-    marginBottom: 8,
   },
 
+  agendaDayBlock: {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 12,
+    marginTop: 12,
+  },
+  agendaDayHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  agendaDayLabel: {
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  agendaMeta: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
   taskCard: {
-    backgroundColor: "#F2F2F7",
     borderRadius: 16,
     padding: 16,
     marginBottom: 12,
@@ -508,6 +689,10 @@ const styles = StyleSheet.create({
   taskTitle: {
     fontSize: 18,
     fontWeight: "600",
+  },
+  taskMeta: {
+    fontSize: 13,
+    marginTop: 2,
   },
 
   taskDue: {
