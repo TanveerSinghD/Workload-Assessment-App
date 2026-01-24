@@ -6,7 +6,6 @@ import { BlurView } from "expo-blur";
 import * as Clipboard from "expo-clipboard";
 import { useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   ScrollView,
   StyleSheet,
@@ -15,20 +14,20 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 
 import { addTask, deleteAllTasks, deleteCompletedTasks, getTasks } from "@/lib/database";
 
 export default function SettingsScreen() {
   const scheme = useColorScheme();
   const dark = scheme === "dark";
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const scrollRef = useRef<ScrollView>(null);
   useScrollToTop(scrollRef);
 
   // States
   const [notifications, setNotifications] = useState(true);
   const [appLock, setAppLock] = useState(false);
-  const [signingOut, setSigningOut] = useState(false);
 
   // Colors
   const background = dark ? "#1C1C1E" : "#f2f2f7";
@@ -69,30 +68,6 @@ export default function SettingsScreen() {
               ],
               { userInterfaceStyle: dark ? "dark" : "light" }
             );
-          },
-        },
-      ],
-      { userInterfaceStyle: dark ? "dark" : "light" }
-    );
-  };
-
-  const handleSignOut = () => {
-    Alert.alert(
-      "Sign out?",
-      "You'll need to log back in to see your tasks.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Sign out",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              setSigningOut(true);
-              await signOut();
-              router.replace("/login");
-            } finally {
-              setSigningOut(false);
-            }
           },
         },
       ],
@@ -261,26 +236,18 @@ export default function SettingsScreen() {
         {/* ACCOUNT */}
         <View style={[styles.card, { backgroundColor: card }]}>
           <Text style={[styles.sectionLabel, { color: subtext }]}>Account</Text>
-
-          <View style={styles.row}>
-            <Text style={[styles.label, { color: text }]}>Name</Text>
-            <Text style={[styles.value, { color: subtext }]}>
-              {user?.name || "Not set"}
-            </Text>
-          </View>
-
-          <View style={styles.row}>
-            <Text style={[styles.label, { color: text }]}>Email</Text>
-            <Text style={[styles.value, { color: subtext }]}>
-              {user?.email || "—"}
-            </Text>
-          </View>
-
-          <TouchableOpacity style={styles.row} onPress={handleSignOut} disabled={signingOut}>
-            <Text style={[styles.label, { color: "#FF3B30" }]}>
-              {signingOut ? "Signing out..." : "Sign Out"}
-            </Text>
-            {signingOut && <ActivityIndicator color="#FF3B30" />}
+          <TouchableOpacity
+            style={styles.row}
+            activeOpacity={0.9}
+            onPress={() => router.push("/account")}
+          >
+            <Text style={[styles.label, { color: text }]}>Account</Text>
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <Text style={[styles.value, { color: subtext }]}>
+                {user?.name || user?.email || "Guest"}
+              </Text>
+              <Ionicons name="chevron-forward" size={18} color={subtext} style={{ marginLeft: 6 }} />
+            </View>
           </TouchableOpacity>
         </View>
 

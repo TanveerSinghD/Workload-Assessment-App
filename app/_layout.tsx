@@ -114,6 +114,15 @@ function RootNavigator() {
         }}
       />
 
+      {/* ACCOUNT SETTINGS */}
+      <Stack.Screen
+        name="account"
+        options={{
+          title: "Account",
+          headerBackTitle: "",
+        }}
+      />
+
       {/* PLAN SECTION */}
       <Stack.Screen
         name="plan-section"
