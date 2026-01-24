@@ -235,7 +235,6 @@ export default function SettingsScreen() {
 
         {/* ACCOUNT */}
         <View style={[styles.card, { backgroundColor: card }]}>
-          <Text style={[styles.sectionLabel, { color: subtext }]}>Account</Text>
           <TouchableOpacity
             style={styles.row}
             activeOpacity={0.9}
@@ -251,11 +250,17 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* SECURITY — surfaced above notifications to prioritize App Lock; headers removed for cleaner hierarchy */}
+        <View style={[styles.card, { backgroundColor: card }]}>
+
+          <View style={styles.row}>
+            <Text style={[styles.label, { color: text }]}>App Lock</Text>
+            <Switch value={appLock} onValueChange={() => setAppLock(!appLock)} />
+          </View>
+        </View>
+
         {/* NOTIFICATIONS */}
         <View style={[styles.card, { backgroundColor: card }]}>
-          <Text style={[styles.sectionLabel, { color: subtext }]}>
-            Notifications
-          </Text>
 
           <View style={styles.row}>
             <Text style={[styles.label, { color: text }]}>Enable Alerts</Text>
@@ -271,19 +276,8 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* SECURITY */}
-        <View style={[styles.card, { backgroundColor: card }]}>
-          <Text style={[styles.sectionLabel, { color: subtext }]}>Security</Text>
-
-          <View style={styles.row}>
-            <Text style={[styles.label, { color: text }]}>App Lock</Text>
-            <Switch value={appLock} onValueChange={() => setAppLock(!appLock)} />
-          </View>
-        </View>
-
         {/* NAVIGATION */}
         <View style={[styles.card, { backgroundColor: card }]}>
-          <Text style={[styles.sectionLabel, { color: subtext }]}>Navigation</Text>
 
           <TouchableOpacity style={styles.row} onPress={() => router.push("/nav-quick-actions")}>
             <Text style={[styles.label, { color: text }]}>Nav Quick Actions</Text>
@@ -293,7 +287,6 @@ export default function SettingsScreen() {
 
         {/* DATA */}
         <View style={[styles.card, { backgroundColor: card }]}>
-          <Text style={[styles.sectionLabel, { color: subtext }]}>Data</Text>
 
           <TouchableOpacity style={styles.row} onPress={exportTasks}>
             <Text style={[styles.label, { color: text }]}>Export tasks (clipboard JSON)</Text>
@@ -325,8 +318,6 @@ export default function SettingsScreen() {
 
         {/* ABOUT */}
         <View style={[styles.card, { backgroundColor: card }]}>
-          <Text style={[styles.sectionLabel, { color: subtext }]}>About</Text>
-
           <TouchableOpacity style={styles.row}>
             <Text style={[styles.label, { color: text }]}>Version</Text>
             <Text style={[styles.value, { color: subtext }]}>1.0.0</Text>
@@ -367,13 +358,6 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     marginHorizontal: 16,
     overflow: "hidden",
-  },
-
-  sectionLabel: {
-    fontSize: 13,
-    opacity: 0.7,
-    marginBottom: 6,
-    marginLeft: 16,
   },
 
   row: {
