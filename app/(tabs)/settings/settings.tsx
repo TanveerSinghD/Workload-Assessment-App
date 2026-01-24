@@ -314,6 +314,16 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        {/* NAVIGATION */}
+        <View style={[styles.card, { backgroundColor: card }]}>
+          <Text style={[styles.sectionLabel, { color: subtext }]}>Navigation</Text>
+
+          <TouchableOpacity style={styles.row} onPress={() => router.push("/nav-quick-actions")}>
+            <Text style={[styles.label, { color: text }]}>Nav Quick Actions</Text>
+            <Text style={[styles.value, { color: subtext }]}>Customize</Text>
+          </TouchableOpacity>
+        </View>
+
         {/* DATA */}
         <View style={[styles.card, { backgroundColor: card }]}>
           <Text style={[styles.sectionLabel, { color: subtext }]}>Data</Text>

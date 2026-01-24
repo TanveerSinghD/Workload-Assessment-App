@@ -70,6 +70,15 @@ export async function initDatabase() {
     );
   `);
 
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS nav_quick_actions (
+      nav_id TEXT NOT NULL,
+      action_id TEXT NOT NULL,
+      user_id INTEGER,
+      PRIMARY KEY (nav_id, user_id)
+    );
+  `);
+
   // Old installs won't have user scoping yet
   await ensureColumnExists("tasks", "user_id", "INTEGER");
   await ensureColumnExists("sessions", "signed_out", "INTEGER DEFAULT 0");

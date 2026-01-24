@@ -1,15 +1,18 @@
+import { BottomTabBarButtonProps } from "@react-navigation/bottom-tabs";
 import { BlurView } from "expo-blur";
+import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 import { Href, Tabs, usePathname, useRouter } from "expo-router";
-import React, { useCallback, useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { Animated, LayoutChangeEvent } from "react-native";
 
 import { HapticTab } from "@/components/haptic-tab";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useNavQuickActions } from "@/hooks/use-nav-quick-actions";
+import { DEFAULT_NAV_QUICK_ACTIONS, NavItemId, navItems, runQuickAction } from "@/lib/nav-config";
 
-const ROUTES = ["/index/index", "/tasks/tasks", "/planner/planner", "/calendar/calendar", "/settings/settings"] as const;
-const TAB_COUNT = ROUTES.length;
+const TAB_COUNT = navItems.length;
 const BUBBLE_WIDTH = 55;
 const HALF_BUBBLE = BUBBLE_WIDTH / 2;
 
@@ -19,24 +22,26 @@ export default function TabLayout() {
   const router = useRouter();
   const pathname = usePathname();
   const blurTint = dark ? "systemChromeMaterialDark" : "systemChromeMaterialLight";
+  const { mapping: quickActions } = useNavQuickActions();
 
   // 🔵 Sliding bubble animation
   const sliderX = useRef(new Animated.Value(0)).current;
 
   // Flag to suppress tab press after a long-press quick action
-  const taskQuickActionTriggered = useRef(false);
+  const longPressTriggered = useRef(false);
 
   // Width of the entire tab bar
   const tabWidth = useRef(0);
+  const routePaths = useMemo(() => navItems.map((item) => item.routePath), []);
 
   const normalizePath = useCallback(
     (path: string) => {
-      const withoutGroup = path.replace(/^\/\(tabs\)/, "") || "/index/index";
-      if (withoutGroup === "/") return "/index/index";
-      if (withoutGroup === "/index") return "/index/index";
+      const withoutGroup = path.replace(/^\/\(tabs\)/, "") || routePaths[0];
+      if (withoutGroup === "/") return routePaths[0];
+      if (withoutGroup === "/index") return routePaths[0];
       return withoutGroup;
     },
-    []
+    [routePaths]
   );
 
   const animateToIndex = useCallback(
@@ -64,10 +69,10 @@ export default function TabLayout() {
   const syncToRoute = useCallback(
     (animated = true) => {
       const normalized = normalizePath(pathname);
-      const routeIndex = ROUTES.findIndex((route) => route === normalized);
+      const routeIndex = routePaths.findIndex((route) => route === normalized);
       animateToIndex(routeIndex === -1 ? 0 : routeIndex, animated);
     },
-    [animateToIndex, normalizePath, pathname]
+    [animateToIndex, normalizePath, pathname, routePaths]
   );
 
   // 🔧 Fix initial off-centre bubble on first load
@@ -90,10 +95,48 @@ export default function TabLayout() {
     const clamped = Math.max(0, Math.min(TAB_COUNT - 1, Math.floor(locationX / ITEM_WIDTH)));
     sliderX.setValue(clamped * ITEM_WIDTH + ITEM_WIDTH / 2 - HALF_BUBBLE);
     if (release) {
-      const href = (`/(tabs)${ROUTES[clamped]}`) as Href;
+      const href = (`/(tabs)${routePaths[clamped]}`) as Href;
       router.navigate(href);
     }
   };
+
+  const handleLongPress = useCallback(
+    (navId: NavItemId) => {
+      // RN fires a dedicated longPress event; we mark it here so the subsequent onPress is ignored.
+      const actionId = quickActions[navId] ?? DEFAULT_NAV_QUICK_ACTIONS[navId];
+      longPressTriggered.current = true;
+      runQuickAction(actionId, router);
+      // Only add a deeper haptic on deliberate long-press.
+      if (process.env.EXPO_OS === "ios") {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      }
+    },
+    [quickActions, router]
+  );
+
+  const renderTabButton = useCallback(
+    (navId: NavItemId, index: number) =>
+      (props: BottomTabBarButtonProps) => (
+        <HapticTab
+          {...props}
+          delayLongPress={320}
+          onLongPress={(e) => {
+            handleLongPress(navId);
+            props.onLongPress?.(e);
+          }}
+          onPress={(e) => {
+            // Skip the normal tap navigation if we just handled a long-press action.
+            if (longPressTriggered.current) {
+              longPressTriggered.current = false;
+              return;
+            }
+            animateToIndex(index);
+            props.onPress?.(e);
+          }}
+        />
+      ),
+    [animateToIndex, handleLongPress]
+  );
 
   return (
     <Tabs
@@ -115,9 +158,7 @@ export default function TabLayout() {
               overflow: "hidden",
               backgroundColor: "transparent",
               borderWidth: 1,
-              borderColor: dark
-                ? "rgba(255,255,255,0.12)"
-                : "rgba(0,0,0,0.08)",
+              borderColor: dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)",
               justifyContent: "center",
             }}
             onStartShouldSetResponder={() => true}
@@ -127,11 +168,7 @@ export default function TabLayout() {
             {/* Glossy highlight for glass feel */}
             <LinearGradient
               pointerEvents="none"
-              colors={
-                dark
-                  ? ["rgba(255,255,255,0.10)", "rgba(255,255,255,0.02)"]
-                  : ["rgba(255,255,255,0.18)", "rgba(255,255,255,0.03)"]
-              }
+              colors={dark ? ["rgba(255,255,255,0.10)", "rgba(255,255,255,0.02)"] : ["rgba(255,255,255,0.18)", "rgba(255,255,255,0.03)"]}
               start={{ x: 0.2, y: 0 }}
               end={{ x: 0.8, y: 1 }}
               style={{
@@ -151,9 +188,7 @@ export default function TabLayout() {
                 width: 55,
                 height: 50,
                 borderRadius: 20,
-                backgroundColor: dark
-                  ? "rgba(255,255,255,0.20)"
-                  : "rgba(0,0,0,0.08)",
+                backgroundColor: dark ? "rgba(255,255,255,0.20)" : "rgba(0,0,0,0.08)",
                 transform: [{ translateX: sliderX }],
               }}
             />
@@ -181,115 +216,17 @@ export default function TabLayout() {
         },
       }}
     >
-      {/* HOME — index 0 */}
-      <Tabs.Screen
-        name="index/index"
-        options={{
-          title: "Home",
-          tabBarIcon: ({ color }) => (
-            <IconSymbol size={28} name="house.fill" color={color} />
-          ),
-          tabBarButton: (props) => (
-            <HapticTab
-              {...props}
-              onPress={(e) => {
-                animateToIndex(0);
-                props.onPress?.(e);
-              }}
-            />
-          ),
-        }}
-      />
-
-      {/* TASKS — index 1 */}
-      <Tabs.Screen
-        name="tasks/tasks"
-        options={{
-          title: "Tasks",
-          tabBarIcon: ({ color }) => (
-            <IconSymbol size={28} name="checklist" color={color} />
-          ),
-          tabBarButton: (props) => (
-            <HapticTab
-              {...props}
-              delayLongPress={320}
-              onLongPress={(e) => {
-                taskQuickActionTriggered.current = true;
-                router.push("/add-assignment");
-                props.onLongPress?.(e);
-              }}
-              onPress={(e) => {
-                if (taskQuickActionTriggered.current) {
-                  taskQuickActionTriggered.current = false;
-                  return;
-                }
-                animateToIndex(1);
-                props.onPress?.(e);
-              }}
-            />
-          ),
-        }}
-      />
-
-      {/* PLANNER — index 2 */}
-      <Tabs.Screen
-        name="planner/planner"
-        options={{
-          title: "Planner",
-          tabBarIcon: ({ color }) => (
-            <IconSymbol size={28} name="pencil.and.outline" color={color} />
-          ),
-          tabBarButton: (props) => (
-            <HapticTab
-              {...props}
-              onPress={(e) => {
-                animateToIndex(2);
-                props.onPress?.(e);
-              }}
-            />
-          ),
-        }}
-      />
-
-      {/* CALENDAR — index 3 */}
-      <Tabs.Screen
-        name="calendar/calendar"
-        options={{
-          title: "Calendar",
-          tabBarIcon: ({ color }) => (
-            <IconSymbol size={28} name="calendar" color={color} />
-          ),
-          tabBarButton: (props) => (
-            <HapticTab
-              {...props}
-              onPress={(e) => {
-                animateToIndex(3);
-                props.onPress?.(e);
-              }}
-            />
-          ),
-        }}
-      />
-
-      {/* SETTINGS — index 4 */}
-      <Tabs.Screen
-        name="settings/settings"
-        options={{
-          title: "Settings",
-          tabBarIcon: ({ color }) => (
-            <IconSymbol size={28} name="gearshape.fill" color={color} />
-          ),
-          tabBarButton: (props) => (
-            <HapticTab
-              {...props}
-              onPress={(e) => {
-                animateToIndex(4);
-                props.onPress?.(e);
-              }}
-            />
-          ),
-        }}
-      />
+      {navItems.map((item, index) => (
+        <Tabs.Screen
+          key={item.id}
+          name={item.routeName}
+          options={{
+            title: item.label,
+            tabBarIcon: ({ color }) => <IconSymbol size={28} name={item.icon} color={color} />,
+            tabBarButton: renderTabButton(item.id, index),
+          }}
+        />
+      ))}
     </Tabs>
   );
 }

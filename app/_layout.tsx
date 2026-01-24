@@ -105,6 +105,15 @@ function RootNavigator() {
         }}
       />
 
+      {/* NAV QUICK ACTIONS */}
+      <Stack.Screen
+        name="nav-quick-actions"
+        options={{
+          title: "Nav Quick Actions",
+          headerBackTitle: "",
+        }}
+      />
+
       {/* PLAN SECTION */}
       <Stack.Screen
         name="plan-section"
