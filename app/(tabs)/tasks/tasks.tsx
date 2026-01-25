@@ -10,6 +10,7 @@ import {
   Alert,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -330,7 +331,13 @@ export default function TasksScreen() {
         </TouchableOpacity>
 
         {/* EASY */}
-        <View style={[styles.sectionBox, { borderColor: border, backgroundColor: card }]}>
+        <Pressable
+          onPress={() => openDifficultyView("easy")}
+          style={({ pressed }) => [
+            styles.sectionBox,
+            { borderColor: border, backgroundColor: card, opacity: pressed ? 0.94 : 1 },
+          ]}
+        >
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: text }]}>
               🟢 Easy ({grouped.easy.length})
@@ -342,10 +349,16 @@ export default function TasksScreen() {
           {grouped.easy.length === 0 ? (
             <Text style={[styles.empty, { color: subtle }]}>No easy tasks.</Text>
           ) : renderTasks(grouped.easy)}
-        </View>
+        </Pressable>
 
         {/* MEDIUM */}
-        <View style={[styles.sectionBox, { borderColor: border, backgroundColor: card }]}>
+        <Pressable
+          onPress={() => openDifficultyView("medium")}
+          style={({ pressed }) => [
+            styles.sectionBox,
+            { borderColor: border, backgroundColor: card, opacity: pressed ? 0.94 : 1 },
+          ]}
+        >
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: text }]}>
               🟡 Medium ({grouped.medium.length})
@@ -357,10 +370,16 @@ export default function TasksScreen() {
           {grouped.medium.length === 0 ? (
             <Text style={[styles.empty, { color: subtle }]}>No medium tasks.</Text>
           ) : renderTasks(grouped.medium)}
-        </View>
+        </Pressable>
 
         {/* HARD */}
-        <View style={[styles.sectionBox, { borderColor: border, backgroundColor: card }]}>
+        <Pressable
+          onPress={() => openDifficultyView("hard")}
+          style={({ pressed }) => [
+            styles.sectionBox,
+            { borderColor: border, backgroundColor: card, opacity: pressed ? 0.94 : 1 },
+          ]}
+        >
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: text }]}>
               🔴 Hard ({grouped.hard.length})
@@ -372,7 +391,7 @@ export default function TasksScreen() {
           {grouped.hard.length === 0 ? (
             <Text style={[styles.empty, { color: subtle }]}>No hard tasks.</Text>
           ) : renderTasks(grouped.hard)}
-        </View>
+        </Pressable>
 
         </ScrollView>
 
