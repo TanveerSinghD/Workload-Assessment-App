@@ -104,6 +104,7 @@ export default function TabLayout() {
     (navId: NavItemId) => {
       // RN fires a dedicated longPress event; we mark it here so the subsequent onPress is ignored.
       const actionId = quickActions[navId] ?? DEFAULT_NAV_QUICK_ACTIONS[navId];
+      if (actionId === "none") return;
       longPressTriggered.current = true;
       runQuickAction(actionId, router);
       // Only add a deeper haptic on deliberate long-press.

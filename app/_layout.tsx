@@ -7,6 +7,7 @@ import 'react-native-reanimated';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AuthProvider, useAuth } from '@/hooks/useAuth';
 import { ThemeOverrideProvider } from '@/hooks/useThemeOverride';
+import { AppLockGate } from "@/components/app-lock-gate";
 
 export const unstable_settings = {
   anchor: '(tabs)', // this is fine
@@ -19,7 +20,9 @@ export default function RootLayout() {
     <ThemeOverrideProvider>
       <AuthProvider>
         <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-          <RootNavigator />
+          <AppLockGate>
+            <RootNavigator />
+          </AppLockGate>
           <StatusBar style="auto" />
         </ThemeProvider>
       </AuthProvider>
@@ -110,6 +113,24 @@ function RootNavigator() {
         name="nav-quick-actions"
         options={{
           title: "Nav Quick Actions",
+          headerBackTitle: "",
+        }}
+      />
+
+      {/* SET PIN */}
+      <Stack.Screen
+        name="set-pin"
+        options={{
+          title: "Set PIN",
+          headerBackTitle: "",
+        }}
+      />
+
+      {/* DISABLE APP LOCK */}
+      <Stack.Screen
+        name="disable-app-lock"
+        options={{
+          title: "Disable App Lock",
           headerBackTitle: "",
         }}
       />

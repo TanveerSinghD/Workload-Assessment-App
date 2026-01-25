@@ -3,6 +3,7 @@ import {
   DEFAULT_NAV_QUICK_ACTIONS,
   NavItemId,
   QuickActionId,
+  navItems,
   isNavItemId,
   isQuickActionId,
 } from "@/lib/nav-config";
@@ -35,9 +36,15 @@ export async function loadNavQuickActions(): Promise<Record<NavItemId, QuickActi
   );
 
   const map = { ...DEFAULT_NAV_QUICK_ACTIONS };
+  const allowedByNav = navItems.reduce<Record<NavItemId, QuickActionId[]>>((acc, nav) => {
+    acc[nav.id] = nav.quickActions;
+    return acc;
+  }, {} as Record<NavItemId, QuickActionId[]>);
+
   rows.forEach((row) => {
     if (isNavItemId(row.nav_id) && isQuickActionId(row.action_id)) {
-      map[row.nav_id] = row.action_id;
+      const allowed = allowedByNav[row.nav_id] || [];
+      map[row.nav_id] = allowed.includes(row.action_id) ? row.action_id : DEFAULT_NAV_QUICK_ACTIONS[row.nav_id];
     }
   });
 

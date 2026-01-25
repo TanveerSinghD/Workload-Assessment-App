@@ -1,10 +1,10 @@
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useAuth } from "@/hooks/useAuth";
-import { useScrollToTop } from "@react-navigation/native";
+import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
 import { router } from "expo-router";
 import { BlurView } from "expo-blur";
 import * as Clipboard from "expo-clipboard";
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   Alert,
   ScrollView,
@@ -17,6 +17,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 
 import { addTask, deleteAllTasks, deleteCompletedTasks, getTasks } from "@/lib/database";
+import { getAppLockState, setAppLockEnabled } from "@/lib/app-lock-storage";
 
 export default function SettingsScreen() {
   const scheme = useColorScheme();
@@ -28,6 +29,7 @@ export default function SettingsScreen() {
   // States
   const [notifications, setNotifications] = useState(true);
   const [appLock, setAppLock] = useState(false);
+  const [loadingLock, setLoadingLock] = useState(true);
 
   // Colors
   const background = dark ? "#1C1C1E" : "#f2f2f7";
@@ -114,6 +116,18 @@ export default function SettingsScreen() {
       Alert.alert("Couldn't add dummy tasks", "Please try again.");
     }
   };
+
+  const refreshLockState = useCallback(async () => {
+    const state = await getAppLockState();
+    setAppLock(state.enabled);
+    setLoadingLock(false);
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshLockState();
+    }, [refreshLockState])
+  );
 
   const exportTasks = async () => {
     try {
@@ -255,7 +269,20 @@ export default function SettingsScreen() {
 
           <View style={styles.row}>
             <Text style={[styles.label, { color: text }]}>App Lock</Text>
-            <Switch value={appLock} onValueChange={() => setAppLock(!appLock)} />
+            <Switch
+              value={appLock}
+              onValueChange={async (value) => {
+                if (loadingLock) return;
+                if (value) {
+                  // Turning on: go to PIN setup; don't flip state until success.
+                  router.push("/set-pin");
+                } else {
+                  // Turning off: require PIN confirmation.
+                  router.push("/disable-app-lock");
+                }
+              }}
+              disabled={loadingLock}
+            />
           </View>
         </View>
 

@@ -3,6 +3,7 @@ import { Href } from "expo-router";
 export type NavItemId = "home" | "tasks" | "planner" | "calendar" | "settings";
 
 export type QuickActionId =
+  | "none"
   | "goHome"
   | "openTasks"
   | "openTasksToday"
@@ -28,6 +29,12 @@ export const quickActionRegistry: Record<
   QuickActionId,
   { label: string; run: (router: { navigate: (href: Href) => void; push: (href: Href) => void }) => void }
 > = {
+  none: {
+    label: "Nothing",
+    run: () => {
+      // Explicitly do nothing for tabs where quick actions are disabled.
+    },
+  },
   goHome: {
     label: "Go to Home",
     run: (router) => router.navigate("/(tabs)/index/index"),
@@ -73,26 +80,26 @@ export const navItems: NavItem[] = [
     icon: "house.fill",
     routeName: "index/index",
     routePath: "/index/index",
-    defaultQuickAction: "goHome",
-    quickActions: ["goHome", "openTasks", "openTasksToday", "openTasksOverdue", "addTask", "openPlanner"],
+    defaultQuickAction: "none",
+    quickActions: ["none"],
   },
   {
     id: "tasks",
     label: "Tasks",
-    icon: "checklist",
-    routeName: "tasks/tasks",
-    routePath: "/tasks/tasks",
-    defaultQuickAction: "addTask",
-    quickActions: ["addTask", "openTasks", "openTasksToday", "openTasksOverdue", "openCompleted"],
-  },
+  icon: "checklist",
+  routeName: "tasks/tasks",
+  routePath: "/tasks/tasks",
+  defaultQuickAction: "addTask",
+  quickActions: ["addTask", "openTasksToday", "openTasksOverdue", "openCompleted"],
+},
   {
     id: "planner",
     label: "Planner",
     icon: "pencil.and.outline",
     routeName: "planner/planner",
     routePath: "/planner/planner",
-    defaultQuickAction: "openPlanner",
-    quickActions: ["openPlanner", "addTask", "openTasks", "openCalendar"],
+    defaultQuickAction: "none",
+    quickActions: ["none"],
   },
   {
     id: "calendar",
@@ -100,8 +107,8 @@ export const navItems: NavItem[] = [
     icon: "calendar",
     routeName: "calendar/calendar",
     routePath: "/calendar/calendar",
-    defaultQuickAction: "openCalendar",
-    quickActions: ["openCalendar", "addTask", "openTasks", "openPlanner"],
+    defaultQuickAction: "none",
+    quickActions: ["none"],
   },
   {
     id: "settings",
@@ -109,8 +116,8 @@ export const navItems: NavItem[] = [
     icon: "gearshape.fill",
     routeName: "settings/settings",
     routePath: "/settings/settings",
-    defaultQuickAction: "openSettings",
-    quickActions: ["openSettings", "openCompleted", "addTask"],
+    defaultQuickAction: "none",
+    quickActions: ["none"],
   },
 ];
 

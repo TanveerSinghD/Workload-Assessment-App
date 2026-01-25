@@ -21,6 +21,9 @@ export function NavQuickActionSelector({ value, options, onChange, disabled }: P
   const scheme = useColorScheme();
   const dark = scheme === "dark";
 
+  const isSingleOption = options.length <= 1;
+  const interactive = !disabled && !isSingleOption;
+
   const colors = useMemo(
     () => ({
       border: dark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.12)",
@@ -47,15 +50,21 @@ export function NavQuickActionSelector({ value, options, onChange, disabled }: P
       <TouchableOpacity
         accessibilityRole="button"
         accessibilityLabel="Select long-press action"
-        activeOpacity={0.8}
-        disabled={disabled}
-        onPress={() => setOpen(true)}
-        style={[styles.trigger, { borderColor: colors.border }]}
+        activeOpacity={interactive ? 0.8 : 1}
+        disabled={!interactive}
+        onPress={() => interactive && setOpen(true)}
+        style={[
+          styles.trigger,
+          {
+            borderColor: colors.border,
+            opacity: interactive ? 1 : 0.6,
+          },
+        ]}
       >
         <Text numberOfLines={1} style={[styles.triggerText, { color: colors.text }]}>
           {current?.label ?? "Choose"}
         </Text>
-        <Ionicons name="chevron-down" size={18} color={colors.subtext} />
+        {interactive && <Ionicons name="chevron-down" size={18} color={colors.subtext} />}
       </TouchableOpacity>
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
