@@ -10,7 +10,8 @@ import { HapticTab } from "@/components/haptic-tab";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useNavQuickActions } from "@/hooks/use-nav-quick-actions";
-import { DEFAULT_NAV_QUICK_ACTIONS, NavItemId, navItems, runQuickAction } from "@/lib/nav-config";
+import { DEFAULT_NAV_QUICK_ACTIONS, NavItemId, executeNavQuickAction, navItems } from "@/lib/nav-config";
+import { loadNavQuickActions } from "@/lib/nav-quick-actions-store";
 
 const TAB_COUNT = navItems.length;
 const BUBBLE_WIDTH = 55;
@@ -22,7 +23,7 @@ export default function TabLayout() {
   const router = useRouter();
   const pathname = usePathname();
   const blurTint = dark ? "systemChromeMaterialDark" : "systemChromeMaterialLight";
-  const { mapping: quickActions } = useNavQuickActions();
+  const { mapping: quickActions, loading: quickActionsLoading } = useNavQuickActions();
 
   // 🔵 Sliding bubble animation
   const sliderX = useRef(new Animated.Value(0)).current;
@@ -101,18 +102,20 @@ export default function TabLayout() {
   };
 
   const handleLongPress = useCallback(
-    (navId: NavItemId) => {
+    async (navId: NavItemId) => {
+      if (quickActionsLoading) return;
       // RN fires a dedicated longPress event; we mark it here so the subsequent onPress is ignored.
-      const actionId = quickActions[navId] ?? DEFAULT_NAV_QUICK_ACTIONS[navId];
+      const latest = await loadNavQuickActions();
+      const actionId = latest[navId] ?? quickActions[navId] ?? DEFAULT_NAV_QUICK_ACTIONS[navId];
       if (actionId === "none") return;
       longPressTriggered.current = true;
-      runQuickAction(actionId, router);
+      executeNavQuickAction(navId, actionId, router);
       // Only add a deeper haptic on deliberate long-press.
       if (process.env.EXPO_OS === "ios") {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }
     },
-    [quickActions, router]
+    [quickActions, quickActionsLoading, router]
   );
 
   const renderTabButton = useCallback(

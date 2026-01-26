@@ -46,6 +46,20 @@ export async function loadNavQuickActions(): Promise<Record<NavItemId, QuickActi
       const allowed = allowedByNav[row.nav_id] || [];
       map[row.nav_id] = allowed.includes(row.action_id) ? row.action_id : DEFAULT_NAV_QUICK_ACTIONS[row.nav_id];
     }
+    // Legacy migrations: old action ids -> new ones
+    if (isNavItemId(row.nav_id)) {
+      const legacyMap: Record<string, QuickActionId> = {
+        addTask: "new_task",
+        openTasksToday: "due_today",
+        openTasksOverdue: "overdue",
+        openCompleted: "completed",
+        openTasks: "new_task",
+      };
+      const legacy = legacyMap[row.action_id];
+      if (legacy && allowedByNav[row.nav_id]?.includes(legacy)) {
+        map[row.nav_id] = legacy;
+      }
+    }
   });
 
   return map;

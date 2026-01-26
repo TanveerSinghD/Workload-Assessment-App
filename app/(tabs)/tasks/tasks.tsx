@@ -4,8 +4,8 @@ import { updateAvailabilityWithFeedback } from "@/utils/availabilityFeedback";
 import { Ionicons } from "@expo/vector-icons";
 import { useScrollToTop } from "@react-navigation/native";
 import { BlurView } from "expo-blur";
-import { Link, router, useFocusEffect } from "expo-router";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { Link, router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   NativeScrollEvent,
@@ -51,6 +51,7 @@ function getShortDescription(notes?: string | null) {
 export default function TasksScreen() {
   const scheme = useColorScheme();
   const dark = scheme === "dark";
+  const { filter: initialFilterParam } = useLocalSearchParams<{ filter?: string }>();
 
   const background = dark ? "#1C1C1E" : "#FFFFFF";
   const card = dark ? "#2C2C2E" : "#FFFFFF";
@@ -86,6 +87,14 @@ export default function TasksScreen() {
       loadTasks(false);
     }, [loadTasks])
   );
+
+  // Apply incoming filter params whenever they change (e.g., from quick actions).
+  useEffect(() => {
+    const allowed = ["all", "today", "week", "overdue"] as const;
+    if (initialFilterParam && (allowed as readonly string[]).includes(initialFilterParam)) {
+      setFilter(initialFilterParam as typeof allowed[number]);
+    }
+  }, [initialFilterParam]);
 
   const today = useMemo(() => {
     const base = new Date();

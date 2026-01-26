@@ -5,10 +5,10 @@ export type NavItemId = "home" | "tasks" | "planner" | "calendar" | "settings";
 export type QuickActionId =
   | "none"
   | "goHome"
-  | "openTasks"
-  | "openTasksToday"
-  | "openTasksOverdue"
-  | "addTask"
+  | "new_task"
+  | "due_today"
+  | "overdue"
+  | "completed"
   | "openPlanner"
   | "openCalendar"
   | "openSettings"
@@ -39,21 +39,21 @@ export const quickActionRegistry: Record<
     label: "Go to Home",
     run: (router) => router.navigate("/(tabs)/index/index"),
   },
-  openTasks: {
-    label: "Open Tasks",
-    run: (router) => router.navigate("/(tabs)/tasks/tasks"),
-  },
-  openTasksToday: {
-    label: "Tasks due today",
-    run: (router) => router.push({ pathname: "/tasks-filter", params: { filter: "today" } }),
-  },
-  openTasksOverdue: {
-    label: "Overdue tasks",
-    run: (router) => router.push({ pathname: "/tasks-filter", params: { filter: "overdue" } }),
-  },
-  addTask: {
+  new_task: {
     label: "New task",
     run: (router) => router.push("/add-assignment"),
+  },
+  due_today: {
+    label: "Tasks due today",
+    run: (router) => router.navigate({ pathname: "/(tabs)/tasks/tasks", params: { filter: "today" } }),
+  },
+  overdue: {
+    label: "Overdue tasks",
+    run: (router) => router.navigate({ pathname: "/(tabs)/tasks/tasks", params: { filter: "overdue" } }),
+  },
+  completed: {
+    label: "Completed tasks",
+    run: (router) => router.push("/completed-tasks"),
   },
   openPlanner: {
     label: "Open Planner",
@@ -86,12 +86,12 @@ export const navItems: NavItem[] = [
   {
     id: "tasks",
     label: "Tasks",
-  icon: "checklist",
-  routeName: "tasks/tasks",
-  routePath: "/tasks/tasks",
-  defaultQuickAction: "addTask",
-  quickActions: ["addTask", "openTasksToday", "openTasksOverdue", "openCompleted"],
-},
+    icon: "checklist",
+    routeName: "tasks/tasks",
+    routePath: "/tasks/tasks",
+    defaultQuickAction: "new_task",
+    quickActions: ["new_task", "due_today", "overdue", "completed"],
+  },
   {
     id: "planner",
     label: "Planner",
@@ -134,6 +134,30 @@ export function runQuickAction(actionId: QuickActionId, router: { navigate: (hre
   if (action) {
     action.run(router);
   }
+}
+
+export function executeNavQuickAction(navId: NavItemId, actionId: QuickActionId, router: { navigate: (href: Href) => void; push: (href: Href) => void }) {
+  if (actionId === "none") return;
+  if (navId === "tasks") {
+    const stamp = Date.now().toString(); // nudge param changes to refresh when already on screen
+    switch (actionId) {
+      case "new_task":
+        router.push("/add-assignment");
+        return;
+      case "due_today":
+        router.push({ pathname: "/(tabs)/tasks/tasks", params: { filter: "today", t: stamp } });
+        return;
+      case "overdue":
+        router.push({ pathname: "/(tabs)/tasks/tasks", params: { filter: "overdue", t: stamp } });
+        return;
+      case "completed":
+        router.push({ pathname: "/completed-tasks", params: { t: stamp } });
+        return;
+      default:
+        break;
+    }
+  }
+  runQuickAction(actionId, router);
 }
 
 export function isNavItemId(value: string): value is NavItemId {
