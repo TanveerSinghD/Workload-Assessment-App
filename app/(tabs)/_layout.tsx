@@ -119,8 +119,8 @@ export default function TabLayout() {
   );
 
   const renderTabButton = useCallback(
-    (navId: NavItemId, index: number) =>
-      (props: BottomTabBarButtonProps) => (
+    (navId: NavItemId, index: number) => {
+      const TabButton = (props: BottomTabBarButtonProps) => (
         <HapticTab
           {...props}
           delayLongPress={320}
@@ -138,7 +138,10 @@ export default function TabLayout() {
             props.onPress?.(e);
           }}
         />
-      ),
+      );
+      TabButton.displayName = `TabButton-${navId}`;
+      return TabButton;
+    },
     [animateToIndex, handleLongPress]
   );
 

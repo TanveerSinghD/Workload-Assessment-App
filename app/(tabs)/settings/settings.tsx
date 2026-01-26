@@ -4,9 +4,12 @@ import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
 import { router } from "expo-router";
 import { BlurView } from "expo-blur";
 import * as Clipboard from "expo-clipboard";
-import { useCallback, useRef, useState } from "react";
+import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Switch,
@@ -17,7 +20,16 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 
 import { addTask, deleteAllTasks, deleteCompletedTasks, getTasks } from "@/lib/database";
-import { getAppLockState, setAppLockEnabled } from "@/lib/app-lock-storage";
+import { getAppLockState } from "@/lib/app-lock-storage";
+import {
+  DEFAULT_REMINDER_TIME,
+  disableReminder,
+  enableReminder,
+  formatReminderTime,
+  loadReminderSettings,
+  saveReminderSettings,
+  triggerTestNotification,
+} from "@/lib/notifications";
 
 export default function SettingsScreen() {
   const scheme = useColorScheme();
@@ -27,9 +39,14 @@ export default function SettingsScreen() {
   useScrollToTop(scrollRef);
 
   // States
-  const [notifications, setNotifications] = useState(true);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [reminderTime, setReminderTime] = useState<{ hour: number; minute: number }>(DEFAULT_REMINDER_TIME);
+  const [loadingReminders, setLoadingReminders] = useState(false);
+  const [sendingTest, setSendingTest] = useState(false);
   const [appLock, setAppLock] = useState(false);
   const [loadingLock, setLoadingLock] = useState(true);
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [tempTime, setTempTime] = useState<{ hour: number; minute: number }>(DEFAULT_REMINDER_TIME);
 
   // Colors
   const background = dark ? "#1C1C1E" : "#f2f2f7";
@@ -123,10 +140,22 @@ export default function SettingsScreen() {
     setLoadingLock(false);
   }, []);
 
+  const refreshNotifications = useCallback(async () => {
+    setLoadingReminders(true);
+    try {
+      const settings = await loadReminderSettings();
+      setNotificationsEnabled(settings.enabled);
+      setReminderTime({ hour: settings.hour, minute: settings.minute });
+    } finally {
+      setLoadingReminders(false);
+    }
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       refreshLockState();
-    }, [refreshLockState])
+      refreshNotifications();
+    }, [refreshLockState, refreshNotifications])
   );
 
   const exportTasks = async () => {
@@ -225,6 +254,95 @@ export default function SettingsScreen() {
     );
   };
 
+  const handleToggleNotifications = useCallback(async () => {
+    if (loadingReminders) return;
+    setLoadingReminders(true);
+    const nextValue = !notificationsEnabled;
+    try {
+      if (nextValue) {
+        const ok = await enableReminder(reminderTime.hour, reminderTime.minute);
+        if (!ok) {
+          Alert.alert(
+            "Notifications blocked",
+            "Please enable notification permissions for this app to receive reminders."
+          );
+          setNotificationsEnabled(false);
+          return;
+        }
+        setNotificationsEnabled(true);
+      } else {
+        await disableReminder();
+        setNotificationsEnabled(false);
+      }
+    } catch (error) {
+      console.error("Notification toggle failed", error);
+      Alert.alert("Notifications error", "We couldn't update reminder settings. Please try again.");
+    } finally {
+      setLoadingReminders(false);
+    }
+  }, [loadingReminders, notificationsEnabled, reminderTime.hour, reminderTime.minute]);
+
+  const handleTimeChange = useCallback((event: DateTimePickerEvent, date?: Date) => {
+    if (event.type === "dismissed") return;
+    if (!date) return;
+    setTempTime({ hour: date.getHours(), minute: date.getMinutes() });
+  }, []);
+
+  const applyTempTime = useCallback(async () => {
+    setShowTimePicker(false);
+    setReminderTime(tempTime);
+    setLoadingReminders(true);
+    try {
+      if (notificationsEnabled) {
+        const ok = await enableReminder(tempTime.hour, tempTime.minute);
+        if (!ok) {
+          Alert.alert(
+            "Notifications blocked",
+            "Please enable notification permissions for this app to receive reminders."
+          );
+          setNotificationsEnabled(false);
+        }
+      } else {
+        await saveReminderSettings({ enabled: false, hour: tempTime.hour, minute: tempTime.minute });
+      }
+    } catch (error) {
+      console.error("Failed to update reminder time", error);
+      Alert.alert("Notification error", "We couldn't update the reminder time.");
+    } finally {
+      setLoadingReminders(false);
+    }
+  }, [notificationsEnabled, tempTime]);
+
+  const reminderTimeDisplay = useMemo(
+    () => formatReminderTime(reminderTime.hour, reminderTime.minute),
+    [reminderTime.hour, reminderTime.minute]
+  );
+
+  const handleSendTest = useCallback(async () => {
+    if (!notificationsEnabled) {
+      Alert.alert("Enable alerts first", "Turn on Enable Alerts to send a test notification.");
+      return;
+    }
+    if (loadingReminders || sendingTest) return;
+    setSendingTest(true);
+    try {
+      const ok = await triggerTestNotification();
+      if (!ok) {
+        Alert.alert(
+          "Notifications blocked",
+          "Please enable notification permissions for this app to receive alerts."
+        );
+      } else {
+        Alert.alert("Sent", "A test notification is on its way.");
+      }
+    } catch (error) {
+      console.error("Failed to send test notification", error);
+      Alert.alert("Send failed", "Could not send a test notification. Please try again.");
+    } finally {
+      setSendingTest(false);
+    }
+  }, [notificationsEnabled, loadingReminders, sendingTest]);
+
   return (
     <View style={{ flex: 1, backgroundColor: background }}>
 
@@ -232,11 +350,12 @@ export default function SettingsScreen() {
       <BlurView
         intensity={40}
         tint={dark ? "dark" : "light"}
+        pointerEvents="none"
         style={styles.blurHeader}
       />
 
       {/* Smooth fade under blur */}
-      <View style={styles.blurFade} />
+      <View style={styles.blurFade} pointerEvents="none" />
 
       <ScrollView
         ref={scrollRef}
@@ -263,6 +382,34 @@ export default function SettingsScreen() {
             </View>
           </TouchableOpacity>
         </View>
+
+        {/* TIME PICKER MODAL */}
+        <Modal transparent visible={showTimePicker} animationType="fade" onRequestClose={() => setShowTimePicker(false)}>
+          <TouchableOpacity
+            activeOpacity={1}
+            onPress={() => setShowTimePicker(false)}
+            style={styles.modalOverlay}
+          >
+            <TouchableOpacity activeOpacity={1} style={[styles.pickerCard, { backgroundColor: card }]}>
+              <Text style={[styles.modalTitle, { color: text }]}>Select Reminder Time</Text>
+              <DateTimePicker
+                mode="time"
+                display={Platform.OS === "ios" ? "spinner" : "spinner"}
+                value={new Date(new Date().setHours(tempTime.hour, tempTime.minute, 0, 0))}
+                onChange={handleTimeChange}
+                minuteInterval={5}
+                themeVariant={dark ? "dark" : "light"}
+              />
+              <TouchableOpacity
+                style={[styles.primaryButton, { backgroundColor: "#0A84FF" }]}
+                onPress={applyTempTime}
+                disabled={loadingReminders}
+              >
+                <Text style={styles.primaryButtonText}>Set</Text>
+              </TouchableOpacity>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
 
         {/* SECURITY — surfaced above notifications to prioritize App Lock; headers removed for cleaner hierarchy */}
         <View style={[styles.card, { backgroundColor: card }]}>
@@ -292,14 +439,32 @@ export default function SettingsScreen() {
           <View style={styles.row}>
             <Text style={[styles.label, { color: text }]}>Enable Alerts</Text>
             <Switch
-              value={notifications}
-              onValueChange={() => setNotifications(!notifications)}
+              value={notificationsEnabled}
+              onValueChange={handleToggleNotifications}
+              disabled={loadingReminders}
             />
           </View>
 
-          <TouchableOpacity style={styles.row}>
+          <TouchableOpacity
+            style={styles.row}
+            onPress={() => {
+              setTempTime(reminderTime);
+              setShowTimePicker(true);
+            }}
+          >
             <Text style={[styles.label, { color: text }]}>Daily Reminder Time</Text>
-            <Text style={[styles.value, { color: subtext }]}>09:00</Text>
+            <Text style={[styles.value, { color: subtext }]}>{reminderTimeDisplay}</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.row}
+            onPress={handleSendTest}
+            disabled={loadingReminders || sendingTest}
+          >
+            <Text style={[styles.label, { color: text }]}>Send test notification</Text>
+            <Text style={[styles.value, { color: subtext }]}>
+              {sendingTest ? "Sending..." : "Now"}
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -421,5 +586,37 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowOffset: { height: 8, width: 0 },
     shadowRadius: 12,
+  },
+
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  pickerCard: {
+    width: "100%",
+    maxWidth: 360,
+    borderRadius: 18,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  primaryButton: {
+    marginTop: 12,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  primaryButtonText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 16,
   },
 });
