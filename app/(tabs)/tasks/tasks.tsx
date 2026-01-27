@@ -1,5 +1,6 @@
 import { deleteTask, duplicateTask, getTasks } from "@/lib/database";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useThemeColors } from "../../../hooks/use-theme-colors";
 import { updateAvailabilityWithFeedback } from "@/utils/availabilityFeedback";
 import { Ionicons } from "@expo/vector-icons";
 import { useScrollToTop } from "@react-navigation/native";
@@ -51,14 +52,17 @@ function getShortDescription(notes?: string | null) {
 export default function TasksScreen() {
   const scheme = useColorScheme();
   const dark = scheme === "dark";
+  const colors = useThemeColors();
   const { filter: initialFilterParam } = useLocalSearchParams<{ filter?: string }>();
 
-  const background = dark ? "#1C1C1E" : "#FFFFFF";
-  const card = dark ? "#2C2C2E" : "#FFFFFF";
-  const border = dark ? "rgba(255,255,255,0.12)" : "rgba(150,150,150,0.25)";
-  const text = dark ? "#FFFFFF" : "#000000";
-  const subtle = dark ? "#9A9A9D" : "#6B6B6C";
-  const highlight = dark ? "#3A3A3C" : "#F2F2F7"; // You chose D (same colour)
+  const background = colors.background;
+  const card = colors.surface;
+  const border = colors.borderSubtle;
+  const text = colors.textPrimary;
+  const subtle = colors.textMuted;
+  const highlight = colors.surfaceElevated;
+  const accent = colors.accentBlue;
+  const success = colors.successGreen;
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [filter, setFilter] = useState<"all" | "today" | "week" | "overdue">("all");
@@ -261,9 +265,9 @@ export default function TasksScreen() {
 
                 {/* STATUS */}
                 {completed ? (
-                  <View style={styles.statusPill}>
-                    <Ionicons name="checkmark-done" size={14} color="#2ECC71" />
-                    <Text style={styles.statusText}>Done</Text>
+                  <View style={[styles.statusPill, { backgroundColor: `${success}1A`, borderColor: `${success}33` }]}>
+                    <Ionicons name="checkmark-done" size={14} color={success} />
+                    <Text style={[styles.statusText, { color: success }]}>Done</Text>
                   </View>
                 ) : null}
               </TouchableOpacity>
@@ -313,8 +317,8 @@ export default function TasksScreen() {
               style={[
                 styles.filterChip,
                 {
-                  borderColor: filter === f ? "#007AFF" : border,
-                  backgroundColor: filter === f ? "#007AFF22" : "transparent",
+                  borderColor: filter === f ? accent : border,
+                  backgroundColor: filter === f ? `${accent}22` : "transparent",
                 },
               ]}
             >
@@ -406,7 +410,7 @@ export default function TasksScreen() {
 
         {/* Floating Add Button */}
         <Link href="/add-assignment" asChild>
-          <TouchableOpacity style={styles.fab}>
+          <TouchableOpacity style={[styles.fab, { backgroundColor: accent }]}>
             <Ionicons name="add" size={32} color="#fff" />
           </TouchableOpacity>
         </Link>
@@ -534,7 +538,6 @@ const styles = StyleSheet.create({
   },
 
   statusText: {
-    color: "#2ECC71",
     fontWeight: "700",
     fontSize: 13,
   },
@@ -543,7 +546,6 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 20,
     bottom: 110,
-    backgroundColor: "#007AFF",
     width: 60,
     height: 60,
     borderRadius: 30,

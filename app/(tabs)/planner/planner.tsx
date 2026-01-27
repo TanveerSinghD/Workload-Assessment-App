@@ -1,4 +1,5 @@
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useThemeColors } from "../../../hooks/use-theme-colors";
 import { addTask, getTasks } from "@/lib/database";
 import { updateAvailabilityWithFeedback } from "@/utils/availabilityFeedback";
 import { Ionicons } from "@expo/vector-icons";
@@ -124,6 +125,7 @@ function computeEnergy(task: Task): "deep" | "shallow" {
 export default function PlannerScreen() {
   const scheme = useColorScheme();
   const dark = scheme === "dark";
+  const colors = useThemeColors();
   const scrollRef = useRef<ScrollView>(null);
   useScrollToTop(scrollRef);
   const insets = useSafeAreaInsets();
@@ -143,13 +145,13 @@ export default function PlannerScreen() {
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   // Same global colours as the rest of the app
-  const background = dark ? "#1C1C1E" : "#FFFFFF";
-  const card = dark ? "#2C2C2E" : "#FFFFFF";
-  const border = dark ? "rgba(255,255,255,0.16)" : "rgba(150,150,150,0.2)";
-  const text = dark ? "#FFFFFF" : "#000000";
-  const subtle = dark ? "#9A9A9D" : "#6B6B6C";
-  const chatSheetBackground = dark ? "#0B1424" : "#FFFFFF";
-  const overlayColor = keyboardVisible ? chatSheetBackground : dark ? "rgba(0,0,0,0.75)" : "rgba(0,0,0,0.45)";
+  const background = colors.background;
+  const card = colors.surface;
+  const border = colors.borderSubtle;
+  const text = colors.textPrimary;
+  const subtle = colors.textMuted;
+  const chatSheetBackground = dark ? "#0B1424" : colors.surface;
+  const overlayColor = keyboardVisible ? chatSheetBackground : colors.overlay;
 
   const loadTasks = useCallback(async (showSpinner = false) => {
     try {

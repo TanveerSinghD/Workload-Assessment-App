@@ -1,5 +1,6 @@
 import { getTasks } from "@/lib/database";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useThemeColors } from "../../../hooks/use-theme-colors";
 import { updateAvailabilityWithFeedback } from "@/utils/availabilityFeedback";
 import { BlurView } from "expo-blur";
 import { Link, router, useFocusEffect } from "expo-router";
@@ -22,6 +23,7 @@ type Task = {
 export default function CalendarScreen() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
+  const colors = useThemeColors();
   const scrollRef = useRef<ScrollView>(null);
   useScrollToTop(scrollRef);
   const insets = useSafeAreaInsets();
@@ -238,8 +240,8 @@ export default function CalendarScreen() {
   );
 
   return (
-    <SafeAreaView edges={["left", "right"]} style={{ flex: 1, backgroundColor: isDark ? "#1C1C1E" : "#FFFFFF" }}>
-    <View style={[styles.container, { backgroundColor: isDark ? "#1C1C1E" : "#FFFFFF" }]}>
+    <SafeAreaView edges={["left", "right"]} style={{ flex: 1, backgroundColor: colors.background }}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <BlurView
         intensity={40}
         tint={isDark ? "dark" : "light"}
@@ -257,7 +259,7 @@ export default function CalendarScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={() => loadTasks(true)}
-            tintColor={isDark ? "#FFF" : "#000"}
+            tintColor={isDark ? colors.textPrimary : "#000"}
           />
         }
       >
@@ -266,13 +268,13 @@ export default function CalendarScreen() {
           style={[
             styles.headerRow,
             {
-              backgroundColor: isDark ? "#1F1F23" : "#F7F8FA",
-              borderColor: isDark ? "#2C2C2E" : "#E5E5EA",
+              backgroundColor: colors.surface,
+              borderColor: colors.borderSubtle,
             },
           ]}
         >
           <TouchableOpacity onPress={goPrevMonth} style={styles.arrowButton}>
-            <Text style={[styles.arrow, { color: isDark ? "#FFFFFF" : "#007AFF" }]}>
+            <Text style={[styles.arrow, { color: isDark ? colors.textPrimary : colors.accentBlue }]}>
               {"<"}
             </Text>
           </TouchableOpacity>
@@ -286,7 +288,7 @@ export default function CalendarScreen() {
             <Text
               style={[
                 styles.headerText,
-                { color: isDark ? "#FFFFFF" : "#0A84FF" },
+                { color: isDark ? colors.textPrimary : colors.accentBlue },
               ]}
             >
               {year}
@@ -302,7 +304,7 @@ export default function CalendarScreen() {
             <Text
               style={[
                 styles.headerText,
-                { color: isDark ? "#FFFFFF" : "#0A84FF" },
+                { color: isDark ? colors.textPrimary : colors.accentBlue },
               ]}
             >
               {months[month - 1]}
@@ -310,7 +312,7 @@ export default function CalendarScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity onPress={goNextMonth} style={styles.arrowButton}>
-            <Text style={[styles.arrow, { color: isDark ? "#FFFFFF" : "#007AFF" }]}>
+            <Text style={[styles.arrow, { color: isDark ? colors.textPrimary : colors.accentBlue }]}>
               {">"}
             </Text>
           </TouchableOpacity>
@@ -324,9 +326,9 @@ export default function CalendarScreen() {
               setMonth(today.getMonth() + 1);
               setSelectedDate(todayStr);
             }}
-            style={[styles.quickChip, { backgroundColor: isDark ? "#2C2C2E" : "#F2F2F7" }]}
+            style={[styles.quickChip, { backgroundColor: colors.surface }]}
           >
-            <Text style={[styles.quickText, { color: isDark ? "#FFF" : "#111" }]}>Today</Text>
+            <Text style={[styles.quickText, { color: colors.textPrimary }]}>Today</Text>
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => {
@@ -334,15 +336,15 @@ export default function CalendarScreen() {
               setMonth(today.getMonth() + 1);
               resetSelected();
             }}
-            style={[styles.quickChip, { backgroundColor: isDark ? "#2C2C2E" : "#F2F2F7" }]}
+            style={[styles.quickChip, { backgroundColor: colors.surface }]}
           >
-            <Text style={[styles.quickText, { color: isDark ? "#FFF" : "#111" }]}>This week</Text>
+            <Text style={[styles.quickText, { color: colors.textPrimary }]}>This week</Text>
           </TouchableOpacity>
         </View>
 
         {/* FILTERS */}
         <View style={styles.filterSection}>
-          <Text style={[styles.filterLabel, { color: isDark ? "#D0D0D0" : "#444" }]}>Priority</Text>
+          <Text style={[styles.filterLabel, { color: colors.textSecondary }]}>Priority</Text>
           <View style={styles.filterRow}>
             {(["all", "easy", "medium", "hard"] as const).map((level) => (
               <TouchableOpacity
@@ -351,12 +353,12 @@ export default function CalendarScreen() {
                 style={[
                   styles.filterChip,
                   {
-                    borderColor: difficulty === level ? "#0A84FF" : "#ccc",
-                    backgroundColor: difficulty === level ? "#0A84FF22" : "transparent",
+                    borderColor: difficulty === level ? colors.accentBlue : colors.borderSubtle,
+                    backgroundColor: difficulty === level ? `${colors.accentBlue}22` : "transparent",
                   },
                 ]}
               >
-                <Text style={{ color: isDark ? "#FFF" : "#000", fontWeight: "700" }}>
+                <Text style={{ color: colors.textPrimary, fontWeight: "700" }}>
                   {level === "all"
                     ? "All"
                     : level === "easy"
@@ -372,12 +374,12 @@ export default function CalendarScreen() {
               style={[
                 styles.filterChip,
                 {
-                  borderColor: showCompleted ? "#34C759" : "#ccc",
-                  backgroundColor: showCompleted ? "#34C75922" : "transparent",
+                  borderColor: showCompleted ? colors.successGreen : colors.borderSubtle,
+                  backgroundColor: showCompleted ? `${colors.successGreen}22` : "transparent",
                 },
               ]}
             >
-              <Text style={{ color: isDark ? "#FFF" : "#000", fontWeight: "700" }}>
+              <Text style={{ color: colors.textPrimary, fontWeight: "700" }}>
                 {showCompleted ? "Showing done" : "Open only"}
               </Text>
             </TouchableOpacity>
@@ -385,7 +387,7 @@ export default function CalendarScreen() {
 
           {courses.length > 1 && (
             <>
-              <Text style={[styles.filterLabel, { color: isDark ? "#D0D0D0" : "#444" }]}>
+              <Text style={[styles.filterLabel, { color: colors.textSecondary }]}>
                 Course
               </Text>
               <View style={styles.filterRow}>
@@ -396,12 +398,12 @@ export default function CalendarScreen() {
                     style={[
                       styles.filterChip,
                       {
-                        borderColor: course === c ? "#FF9F0A" : "#ccc",
-                        backgroundColor: course === c ? "#FF9F0A22" : "transparent",
+                        borderColor: course === c ? colors.accentBlue : colors.borderSubtle,
+                        backgroundColor: course === c ? `${colors.accentBlue}22` : "transparent",
                       },
                     ]}
                   >
-                    <Text style={{ color: isDark ? "#FFF" : "#000", fontWeight: "700" }}>
+                    <Text style={{ color: colors.textPrimary, fontWeight: "700" }}>
                       {c === "all" ? "All courses" : c}
                     </Text>
                   </TouchableOpacity>
@@ -430,10 +432,10 @@ export default function CalendarScreen() {
           enableSwipeMonths
           renderHeader={() => null}
           theme={{
-            calendarBackground: isDark ? "#1C1C1E" : "#FFFFFF",
-            dayTextColor: isDark ? "#FFFFFF" : "#000000",
-            textDisabledColor: isDark ? "#666666" : "#CCCCCC",
-            textSectionTitleColor: isDark ? "#B0B0B0" : "#999999",
+            calendarBackground: colors.background,
+            dayTextColor: colors.textPrimary,
+            textDisabledColor: colors.textMuted,
+            textSectionTitleColor: colors.textSecondary,
             textDayFontSize: 16,
           }}
         />
@@ -441,34 +443,34 @@ export default function CalendarScreen() {
         {/* TASK LIST / AGENDA */}
         <View style={styles.taskListContainer}>
           <View style={styles.agendaHeaderRow}>
-            <Text style={[styles.agendaTitle, { color: isDark ? "#FFF" : "#111" }]}>
+            <Text style={[styles.agendaTitle, { color: colors.textPrimary }]}>
               {selectedDate ? `Tasks for ${formatDateLabel(selectedDate)}` : "This week"}
             </Text>
             {selectedDate && (
               <TouchableOpacity onPress={resetSelected}>
-                <Text style={{ color: "#0A84FF", fontWeight: "700" }}>Clear</Text>
+                <Text style={{ color: colors.accentBlue, fontWeight: "700" }}>Clear</Text>
               </TouchableOpacity>
             )}
           </View>
 
           {!hasAgendaItems ? (
-            <Text style={[styles.noTasksText, { color: isDark ? "#BBB" : "#666" }]}>
+            <Text style={[styles.noTasksText, { color: colors.textMuted }]}>
               {selectedDate ? "No assignments due." : "No upcoming tasks in the next 7 days."}
             </Text>
           ) : (
             agendaDays.map((day) => (
-              <View key={day.date} style={[styles.agendaDayBlock, { borderColor: isDark ? "#2C2C2E" : "#E5E5EA" }]}>
+              <View key={day.date} style={[styles.agendaDayBlock, { borderColor: colors.borderSubtle }]}>
                 <View style={styles.agendaDayHeader}>
-                  <Text style={[styles.agendaDayLabel, { color: isDark ? "#FFF" : "#111" }]}>
+                  <Text style={[styles.agendaDayLabel, { color: colors.textPrimary }]}>
                     {day.label}
                   </Text>
-                  <Text style={[styles.agendaMeta, { color: isDark ? "#AAA" : "#555" }]}>
+                  <Text style={[styles.agendaMeta, { color: colors.textSecondary }]}>
                     {day.items.length} {day.items.length === 1 ? "task" : "tasks"}
                   </Text>
                 </View>
 
                 {day.items.length === 0 ? (
-                  <Text style={[styles.noTasksText, { color: isDark ? "#777" : "#888" }]}>
+                  <Text style={[styles.noTasksText, { color: colors.textMuted }]}>
                     No tasks for this day.
                   </Text>
                 ) : (
@@ -479,7 +481,7 @@ export default function CalendarScreen() {
                       asChild
                     >
                       <TouchableOpacity
-                        style={[styles.taskCard, { backgroundColor: isDark ? "#2C2C2E" : "#F2F2F7" }]}
+                        style={[styles.taskCard, { backgroundColor: colors.surface }]}
                         onLongPress={() => handleQuickActions(item)}
                         activeOpacity={0.85}
                       >
@@ -491,17 +493,17 @@ export default function CalendarScreen() {
                             ]}
                           />
                           <View style={{ flex: 1 }}>
-                            <Text style={[styles.taskTitle, { color: isDark ? "#FFF" : "#111" }]}>
+                            <Text style={[styles.taskTitle, { color: colors.textPrimary }]}>
                               {item.title}
                             </Text>
                             {!!item.subject && (
-                              <Text style={[styles.taskMeta, { color: isDark ? "#AAA" : "#555" }]}>
+                              <Text style={[styles.taskMeta, { color: colors.textSecondary }]}>
                                 {item.subject}
                               </Text>
                             )}
                           </View>
                         </View>
-                        <Text style={[styles.taskDue, { color: isDark ? "#BBB" : "#666" }]}>
+                        <Text style={[styles.taskDue, { color: colors.textMuted }]}>
                           Due {item.due_date}
                         </Text>
                       </TouchableOpacity>

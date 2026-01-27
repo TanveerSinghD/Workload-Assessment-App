@@ -1,6 +1,7 @@
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useThemeColors } from "../../../hooks/use-theme-colors";
 import { getTasks } from "@/lib/database";
 import { updateAvailabilityWithFeedback } from "@/utils/availabilityFeedback";
 import { Ionicons } from "@expo/vector-icons";
@@ -45,12 +46,17 @@ export default function HomeScreen() {
   const [showHeaderBlur, setShowHeaderBlur] = useState(false);
   const headerHeight = insets.top + 8;
 
-  // Theme colours
-  const background = dark ? "#1C1C1E" : "#FFFFFF";
-  const card = dark ? "#2C2C2E" : "#FFFFFF";
-  const border = dark ? "rgba(255,255,255,0.12)" : "rgba(150,150,150,0.2)";
-  const text = dark ? "#FFFFFF" : "#000000";
-  const subtle = dark ? "#9A9A9D" : "#6B6B6C";
+  // Theme colours (unified)
+  const colors = useThemeColors();
+  const background = colors.background;
+  const card = colors.surface;
+  const border = colors.borderSubtle;
+  const text = colors.textPrimary;
+  const subtle = colors.textMuted;
+  const surfaceElevated = colors.surfaceElevated;
+  const success = colors.successGreen;
+  const warning = colors.warningYellow;
+  const danger = colors.dangerRed;
 
   const today = useMemo(() => {
     const base = new Date();
@@ -331,7 +337,7 @@ export default function HomeScreen() {
                 {
                   label: "Overdue",
                   value: stats.overdue,
-                  color: "#FF453A",
+                  color: danger,
                   icon: "warning-outline",
                   filter: "overdue" as const,
                 },
@@ -343,7 +349,7 @@ export default function HomeScreen() {
                   style={[
                     styles.statChip,
                     {
-                      backgroundColor: dark ? "rgba(255,255,255,0.06)" : "#F7F8FA",
+                      backgroundColor: surfaceElevated,
                       borderColor: dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)",
                     },
                   ]}
@@ -394,15 +400,15 @@ export default function HomeScreen() {
               data={[
                 {
                   value: stats.openTasks,
-                  color: "#D1D1D6",
+                  color: subtle,
                 },
                 {
                   value: stats.completed,
-                  color: "#4CD964",
+                  color: success,
                 },
                 {
                   value: 0,
-                  color: "#32ADE6",
+                  color: colors.accentBlue,
                 },
               ]}
             />
@@ -411,12 +417,12 @@ export default function HomeScreen() {
           {/* Chart Legend */}
           <View style={styles.legendRow}>
             <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: "#D1D1D6" }]} />
+              <View style={[styles.legendDot, { backgroundColor: subtle }]} />
               <Text style={[styles.legendText, { color: text }]}>Open</Text>
             </View>
 
             <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: "#4CD964" }]} />
+              <View style={[styles.legendDot, { backgroundColor: success }]} />
               <Text style={[styles.legendText, { color: text }]}>Complete</Text>
             </View>
           </View>
@@ -429,7 +435,7 @@ export default function HomeScreen() {
           </ThemedText>
           <View style={styles.statRow}>
             <TouchableOpacity
-              style={[styles.statBox, { borderColor: border, backgroundColor: dark ? "#1F1F23" : "#F7F8FA" }]}
+              style={[styles.statBox, { borderColor: border, backgroundColor: surfaceElevated }]}
               activeOpacity={0.85}
               onPress={() => goToFilter("overdue")}
             >
@@ -444,7 +450,7 @@ export default function HomeScreen() {
               )}
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.statBox, { borderColor: border, backgroundColor: dark ? "#1F1F23" : "#F7F8FA" }]}
+              style={[styles.statBox, { borderColor: border, backgroundColor: surfaceElevated }]}
               activeOpacity={0.85}
               onPress={() => goToFilter("today")}
             >
@@ -453,7 +459,7 @@ export default function HomeScreen() {
               <Text style={[styles.statHint, { color: subtle }]}>Next 3 days: {loadForecast.next3}</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.statBox, { borderColor: border, backgroundColor: dark ? "#1F1F23" : "#F7F8FA" }]}
+              style={[styles.statBox, { borderColor: border, backgroundColor: surfaceElevated }]}
               activeOpacity={0.85}
               onPress={() => goToFilter("next7")}
             >
@@ -472,23 +478,23 @@ export default function HomeScreen() {
           <Text style={[styles.statHint, { color: subtle }]}>
             {difficultyMix.easy} easy · {difficultyMix.medium} medium · {difficultyMix.hard} hard
           </Text>
-          <View style={[styles.barBackground, { backgroundColor: dark ? "#2C2C2E" : "#f0f0f3" }]}>
+          <View style={[styles.barBackground, { backgroundColor: surfaceElevated }]}>
             <View
               style={[
                 styles.barFill,
-                { width: `${difficultyMix.percents.easy}%`, backgroundColor: "#4CD964" },
+                { width: `${difficultyMix.percents.easy}%`, backgroundColor: success },
               ]}
             />
             <View
               style={[
                 styles.barFill,
-                { width: `${difficultyMix.percents.medium}%`, backgroundColor: "#FF9F0A" },
+                { width: `${difficultyMix.percents.medium}%`, backgroundColor: warning },
               ]}
             />
             <View
               style={[
                 styles.barFill,
-                { width: `${difficultyMix.percents.hard}%`, backgroundColor: "#FF453A" },
+                { width: `${difficultyMix.percents.hard}%`, backgroundColor: danger },
               ]}
             />
           </View>
@@ -526,7 +532,7 @@ export default function HomeScreen() {
           </ThemedText>
           <View style={styles.statRow}>
             <TouchableOpacity
-              style={[styles.statBox, { borderColor: border, backgroundColor: dark ? "#1F1F23" : "#F7F8FA" }]}
+              style={[styles.statBox, { borderColor: border, backgroundColor: surfaceElevated }]}
               activeOpacity={0.85}
               onPress={() => router.push({ pathname: "/tasks-filter", params: { filter: "recent" } })}
             >
@@ -537,7 +543,7 @@ export default function HomeScreen() {
             <View
               style={[
                 styles.statBox,
-                { flex: 2, borderColor: border, backgroundColor: dark ? "#1F1F23" : "#F7F8FA" },
+                { flex: 2, borderColor: border, backgroundColor: surfaceElevated },
               ]}
             >
               <Text style={[styles.statLabel, { color: subtle }]}>Oldest open items</Text>

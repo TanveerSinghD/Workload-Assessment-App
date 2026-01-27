@@ -1,5 +1,6 @@
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useAuth } from "@/hooks/useAuth";
+import { useThemeColors } from "../../../hooks/use-theme-colors";
 import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
 import { router } from "expo-router";
 import { BlurView } from "expo-blur";
@@ -34,6 +35,7 @@ import {
 export default function SettingsScreen() {
   const scheme = useColorScheme();
   const dark = scheme === "dark";
+  const colors = useThemeColors();
   const { user } = useAuth();
   const scrollRef = useRef<ScrollView>(null);
   useScrollToTop(scrollRef);
@@ -49,10 +51,10 @@ export default function SettingsScreen() {
   const [tempTime, setTempTime] = useState<{ hour: number; minute: number }>(DEFAULT_REMINDER_TIME);
 
   // Colors
-  const background = dark ? "#1C1C1E" : "#f2f2f7";
-  const card = dark ? "#2C2C2E" : "#fff";
-  const text = dark ? "#ffffff" : "#000";
-  const subtext = dark ? "#D1D1D6" : "#555";
+  const background = colors.background;
+  const card = colors.surface;
+  const text = colors.textPrimary;
+  const subtext = colors.textMuted;
 
   /* DOUBLE CONFIRM DELETE FUNCTION */
   const clearAllData = () => {
@@ -517,7 +519,7 @@ export default function SettingsScreen() {
 
           <TouchableOpacity style={styles.row}>
             <Text style={[styles.label, { color: text }]}>Developer</Text>
-            <Text style={[styles.value, { color: subtext }]}>You</Text>
+            <Text style={[styles.value, { color: subtext }]}>Tanveer Singh Dhaliwal</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.row}>

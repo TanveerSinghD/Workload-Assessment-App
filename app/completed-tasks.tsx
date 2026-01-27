@@ -1,5 +1,6 @@
 import { getTasks } from "@/lib/database";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useThemeColors } from "../hooks/use-theme-colors";
 import { updateAvailabilityWithFeedback } from "@/utils/availabilityFeedback";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
@@ -29,16 +30,17 @@ function daysDiff(date: Date | null, today: Date) {
 export default function CompletedTasksScreen() {
   const scheme = useColorScheme();
   const dark = scheme === "dark";
+  const colors = useThemeColors();
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [difficulty, setDifficulty] = useState<"all" | "easy" | "medium" | "hard">("all");
   const [windowDays, setWindowDays] = useState<"all" | 7 | 30>("all");
 
-  const background = dark ? "#1C1C1E" : "#FFFFFF";
-  const card = dark ? "#2C2C2E" : "#FFFFFF";
-  const border = dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.1)";
-  const text = dark ? "#FFFFFF" : "#000000";
-  const subtle = dark ? "#9A9A9D" : "#6B6B6C";
+  const background = colors.background;
+  const card = colors.surface;
+  const border = colors.borderSubtle;
+  const text = colors.textPrimary;
+  const subtle = colors.textMuted;
 
   const loadTasks = useCallback(async () => {
     const data = await getTasks();

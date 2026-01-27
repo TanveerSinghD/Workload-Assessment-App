@@ -1,5 +1,6 @@
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useAuth } from "@/hooks/useAuth";
+import { useThemeColors } from "../hooks/use-theme-colors";
 import { Stack, router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
@@ -11,16 +12,17 @@ import { getAppLockState, verifyPin } from "@/lib/app-lock-storage";
 export default function AccountScreen() {
   const scheme = useColorScheme();
   const dark = scheme === "dark";
+  const colors = useThemeColors();
   const { user, signOut } = useAuth();
   const [signingOut, setSigningOut] = useState(false);
   const [lockEnabled, setLockEnabled] = useState(false);
   const [missingPin, setMissingPin] = useState(false);
   const [checkingLock, setCheckingLock] = useState(true);
 
-  const background = dark ? "#1C1C1E" : "#f2f2f7";
-  const card = dark ? "#2C2C2E" : "#fff";
-  const text = dark ? "#ffffff" : "#000";
-  const subtext = dark ? "#D1D1D6" : "#555";
+  const background = colors.background;
+  const card = colors.surface;
+  const text = colors.textPrimary;
+  const subtext = colors.textMuted;
 
   const handleSignOut = () => {
     Alert.alert(
