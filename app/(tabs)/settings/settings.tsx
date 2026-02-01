@@ -1,12 +1,6 @@
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useAuth } from "@/hooks/useAuth";
 import { useThemeColors } from "../../../hooks/use-theme-colors";
-import {
-  loadAccessibilityPrefs,
-  setFontScale,
-  setHapticsEnabled,
-  setColorBlindMode,
-} from "@/utils/accessibilityPrefs";
 import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
 import { router } from "expo-router";
 import { BlurView } from "expo-blur";
@@ -55,10 +49,6 @@ export default function SettingsScreen() {
   const [loadingLock, setLoadingLock] = useState(true);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [tempTime, setTempTime] = useState<{ hour: number; minute: number }>(DEFAULT_REMINDER_TIME);
-  const [fontScale, setFontScaleState] = useState(1);
-  const [hapticsEnabled, setHapticsEnabledState] = useState(true);
-  const [colorBlindMode, setColorBlindModeState] = useState(false);
-  const [loadingAccess, setLoadingAccess] = useState(true);
 
   // Colors
   const background = colors.background;
@@ -167,8 +157,7 @@ export default function SettingsScreen() {
     useCallback(() => {
       refreshLockState();
       refreshNotifications();
-      refreshAccessPrefs();
-    }, [refreshLockState, refreshNotifications, refreshAccessPrefs])
+    }, [refreshLockState, refreshNotifications])
   );
 
   const exportTasks = async () => {
@@ -331,18 +320,6 @@ export default function SettingsScreen() {
     [reminderTime.hour, reminderTime.minute]
   );
 
-  const refreshAccessPrefs = useCallback(async () => {
-    setLoadingAccess(true);
-    try {
-      const prefs = await loadAccessibilityPrefs();
-      setFontScaleState(prefs.fontScale);
-      setHapticsEnabledState(prefs.hapticsEnabled);
-      setColorBlindModeState(prefs.colorBlindMode);
-    } finally {
-      setLoadingAccess(false);
-    }
-  }, []);
-
   const handleSendTest = useCallback(async () => {
     if (!notificationsEnabled) {
       Alert.alert("Enable alerts first", "Turn on Enable Alerts to send a test notification.");
@@ -367,31 +344,6 @@ export default function SettingsScreen() {
       setSendingTest(false);
     }
   }, [notificationsEnabled, loadingReminders, sendingTest]);
-
-  const handleFontScaleChange = useCallback(
-    async (delta: number) => {
-      const next = Math.min(1.6, Math.max(0.8, Number((fontScale + delta).toFixed(2))));
-      setFontScaleState(next);
-      await setFontScale(next);
-    },
-    [fontScale]
-  );
-
-  const handleToggleHaptics = useCallback(
-    async (value: boolean) => {
-      setHapticsEnabledState(value);
-      await setHapticsEnabled(value);
-    },
-    []
-  );
-
-  const handleToggleColorBlind = useCallback(
-    async (value: boolean) => {
-      setColorBlindModeState(value);
-      await setColorBlindMode(value);
-    },
-    []
-  );
 
   return (
     <View style={{ flex: 1, backgroundColor: background }}>
@@ -529,46 +481,6 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* ACCESSIBILITY */}
-        <View style={[styles.card, { backgroundColor: card }]}>
-          <View style={styles.row}>
-            <Text style={[styles.label, { color: text }]}>Text Size</Text>
-            <View style={styles.sliderRow}>
-              <TouchableOpacity
-                style={[styles.pillBtn, { borderColor: subtext }]}
-                onPress={() => handleFontScaleChange(-0.1)}
-                disabled={loadingAccess}
-              >
-                <Text style={[styles.pillLabel, { color: text }]}>–</Text>
-              </TouchableOpacity>
-              <Text style={[styles.value, { color: subtext, width: 60, textAlign: "center" }]}>
-                {Math.round(fontScale * 100)}%
-              </Text>
-              <TouchableOpacity
-                style={[styles.pillBtn, { borderColor: subtext }]}
-                onPress={() => handleFontScaleChange(0.1)}
-                disabled={loadingAccess}
-              >
-                <Text style={[styles.pillLabel, { color: text }]}>+</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          <View style={styles.row}>
-            <Text style={[styles.label, { color: text }]}>Haptics</Text>
-            <Switch value={hapticsEnabled} onValueChange={handleToggleHaptics} disabled={loadingAccess} />
-          </View>
-
-          <View style={styles.row}>
-            <Text style={[styles.label, { color: text }]}>Color blind friendly</Text>
-            <Switch
-              value={colorBlindMode}
-              onValueChange={handleToggleColorBlind}
-              disabled={loadingAccess}
-            />
-          </View>
-        </View>
-
         {/* NAVIGATION */}
         <View style={[styles.card, { backgroundColor: card }]}>
 
@@ -663,21 +575,6 @@ const styles = StyleSheet.create({
 
   label: { fontSize: 16 },
   value: { fontSize: 14, opacity: 0.8 },
-  sliderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  pillBtn: {
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    minWidth: 36,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  pillLabel: { fontSize: 18, fontWeight: "700" },
 
   /* Blur header */
   blurHeader: {

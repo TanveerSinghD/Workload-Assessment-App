@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -9,7 +9,6 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AuthProvider, useAuth } from '@/hooks/useAuth';
 import { ThemeOverrideProvider } from '@/hooks/useThemeOverride';
 import { AppLockGate } from "@/components/app-lock-gate";
-import { loadAccessibilityPrefs } from "@/utils/accessibilityPrefs";
 
 export const unstable_settings = {
   anchor: '(tabs)', // this is fine
@@ -35,10 +34,6 @@ export default function RootLayout() {
 function RootNavigator() {
   const { user, loading } = useAuth();
   const colorScheme = useColorScheme();
-
-  useEffect(() => {
-    loadAccessibilityPrefs().catch(() => {});
-  }, []);
 
   if (loading) {
     return (
