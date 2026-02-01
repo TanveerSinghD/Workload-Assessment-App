@@ -27,7 +27,16 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { Intent, getLibraries, isGreetingMessage, matchIntent, selectResponse } from "@/assistant_engine";
+import {
+  Intent,
+  getLibraries,
+  isGreetingMessage,
+  matchIntent,
+  selectResponse,
+  rememberTaskMessage,
+} from "@/assistant_engine";
+import { AssistantAction } from "@/assistant_actions/types";
+import { runAssistantActions } from "@/assistant_actions/registry";
 
 type Task = {
   id: number;
@@ -52,6 +61,7 @@ type ChatMessage = {
   from: "user" | "bot";
   text: string;
   tasks?: Pick<Task, "id" | "title" | "due_date" | "difficulty">[];
+  actions?: AssistantAction[];
 };
 
 const INITIAL_CHAT_MESSAGE: ChatMessage = {
@@ -61,6 +71,7 @@ const INITIAL_CHAT_MESSAGE: ChatMessage = {
 };
 
 const ASSISTANT_DEBUG = __DEV__ && false; // toggle to true in dev to see matching logs
+const ASSISTANT_LIBRARY_MAIN: LibraryType = "main";
 
 // Parse stored date into a JS Date at midnight
 function parseDueDate(due: string | null | undefined) {
@@ -176,6 +187,166 @@ function findRelatedTasks(message: string, tasks: Task[]) {
   }
   return null;
 }
+
+function detectStatsRequest(message: string) {
+  const m = message.toLowerCase();
+  const rangeMatch = m.match(/(last|past)\s+(\d+)\s*(day|week|month|days|weeks|months)/);
+  const completedHit = /(how many|count).*(done|completed|finished)/.test(m);
+  if (!rangeMatch && !/today|this week|this month/.test(m)) return null;
+  if (!completedHit && !/done|completed|finished|finished tasks/.test(m)) return null;
+
+  let days = 7;
+  if (rangeMatch) {
+    const n = Number(rangeMatch[2]);
+    const unit = rangeMatch[3];
+    if (unit.startsWith("day")) days = n;
+    else if (unit.startsWith("week")) days = n * 7;
+    else if (unit.startsWith("month")) days = n * 30;
+  } else if (/today/.test(m)) {
+    days = 1;
+  } else if (/this week/.test(m)) {
+    days = 7;
+  } else if (/this month/.test(m)) {
+    days = 30;
+  }
+  return days;
+}
+
+function completedInRange(tasks: Task[], days: number) {
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const cutoff = new Date(now);
+  cutoff.setDate(cutoff.getDate() - days + 1);
+  const matches = tasks.filter((t) => {
+    if (!t.completed) return false;
+    const d = parseDueDate(t.due_date ?? null);
+    if (!d) return true; // if no due date but completed, include
+    return d >= cutoff && d <= now;
+  });
+  return matches;
+}
+
+function buildContextSnapshot(tasks: Task[]) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  let open = 0;
+  let overdue = 0;
+  let dueToday = 0;
+  let dueWeek = 0;
+  let completed = 0;
+
+  tasks.forEach((t) => {
+    if (t.completed) {
+      completed += 1;
+      return;
+    }
+    open += 1;
+    const due = parseDueDate(t.due_date ?? null);
+    if (!due) return;
+    const diff = diffInDays(due);
+    if (diff === null) return;
+    if (diff < 0) overdue += 1;
+    else if (diff === 0) dueToday += 1;
+    else if (diff <= 7) dueWeek += 1;
+  });
+
+  return `Status: ${open} open (${overdue} overdue, ${dueToday} today, ${dueWeek} this week). ${completed} completed so far.`;
+}
+
+function isOverviewRequest(message: string) {
+  const lower = message.toLowerCase();
+  return /(overview|status|what's going on|how am i doing|summary|context)/.test(lower);
+}
+
+function summarizeTasks(timeframe: "today" | "week" | "overdue", tasks: Task[]) {
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const filtered = tasks.filter((t) => {
+    const due = parseDueDate(t.due_date ?? null);
+    if (!due) return false;
+    const diff = diffInDays(due);
+    if (diff === null) return false;
+    if (timeframe === "today") return diff === 0;
+    if (timeframe === "week") return diff >= 0 && diff <= 7;
+    if (timeframe === "overdue") return diff < 0;
+    return false;
+  });
+  const summary =
+    timeframe === "today"
+      ? "Today’s tasks"
+      : timeframe === "week"
+      ? "This week’s tasks"
+      : "Overdue tasks";
+  return {
+    title: summary,
+    items: filtered.slice(0, 8),
+  };
+}
+
+function needsSummary(message: string) {
+  const lower = message.toLowerCase();
+  if (/today/.test(lower)) return "today";
+  if (/week|next 7/.test(lower)) return "week";
+  if (/overdue|late/.test(lower)) return "overdue";
+  return null;
+}
+
+function detectTone(message: string) {
+  const lower = message.toLowerCase();
+  if (/(stressed|overwhelmed|struggling|tired|stuck)/.test(lower)) return "coach";
+  if (/(urgent|asap|quick|now)/.test(lower)) return "directive";
+  return "neutral";
+}
+
+function parseCreateTaskRequest(message: string) {
+  const lower = message.toLowerCase();
+  if (!/(add|create).*(task)/.test(lower)) return null;
+  const difficultyMatch = lower.match(/(easy|medium|hard)/);
+  const difficulty = (difficultyMatch?.[1] as "easy" | "medium" | "hard") ?? "medium";
+  let due: string | null = null;
+  if (/tomorrow/.test(lower)) {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    due = d.toISOString().split("T")[0];
+  } else {
+    const dateMatch = lower.match(/(\d{4}-\d{2}-\d{2})/);
+    if (dateMatch) due = dateMatch[1];
+  }
+  let title = message;
+  const afterColon = message.split(":")[1];
+  if (afterColon) title = afterColon.trim();
+  const afterTask = message.split(/task/i)[1];
+  if (afterTask && afterTask.trim().length > 3) title = afterTask.trim();
+  title = title.replace(/due .*/i, "").trim();
+  if (!title) title = "New task";
+  return { title, due_date: due, difficulty };
+}
+
+function wantsOverdueNavigation(message: string) {
+  const lower = message.toLowerCase();
+  return /overdue/.test(lower) && /(show|open|see)/.test(lower);
+}
+
+function wantsOldestOverdueComplete(message: string) {
+  const lower = message.toLowerCase();
+  return /oldest.*overdue/.test(lower) && /(complete|mark)/.test(lower);
+}
+
+function wantsPlannerRefresh(message: string) {
+  const lower = message.toLowerCase();
+  return /planner/.test(lower) && /(refresh|update|reload)/.test(lower);
+}
+
+function wantsAlertsOff(message: string) {
+  const lower = message.toLowerCase();
+  return /(turn off|disable|stop).*(alert|notification)/.test(lower);
+}
+
+function wantsQuickActionCompleted(message: string) {
+  const lower = message.toLowerCase();
+  return /(quick action).*(completed)/.test(lower) || /(set tasks quick action to completed)/.test(lower);
+}
+
 
 export default function PlannerScreen() {
   const scheme = useColorScheme();
@@ -601,9 +772,64 @@ export default function PlannerScreen() {
 
   const generateAssistantReply = useCallback(
     async (input: string) => {
+      const actions: AssistantAction[] = [];
+
       const mathResult = tryEvalMath(input);
       if (mathResult !== null) {
-        return { text: `${input.replace(/\s+/g, " ")} = ${mathResult}` };
+        return { text: `${input.replace(/\s+/g, " ")} = ${mathResult}`, actions };
+      }
+
+      const createRequest = parseCreateTaskRequest(input);
+      if (createRequest) {
+        actions.push({
+          type: "CREATE_TASK",
+          payload: {
+            title: createRequest.title,
+            description: createRequest.title,
+            difficulty: createRequest.difficulty,
+            due_date: createRequest.due_date ?? null,
+          },
+        });
+        actions.push({ type: "NAVIGATE", payload: { route: "/(tabs)/tasks/tasks" } });
+        actions.push({ type: "SET_TASK_FILTER", payload: { filter: "all" } });
+        return {
+          text: `Added “${createRequest.title}” (${createRequest.difficulty})${createRequest.due_date ? ` due ${createRequest.due_date}` : ""}.`,
+          actions,
+        };
+      }
+
+      const statsRange = detectStatsRequest(input);
+      if (statsRange) {
+        const completed = completedInRange(tasks, statsRange);
+        const total = completed.length;
+        if (total === 0) {
+          return { text: `No completed tasks in the last ${statsRange} day(s). Want to review open ones instead?`, actions };
+        }
+        return {
+          text: `You completed ${total} task${total === 1 ? "" : "s"} in the last ${statsRange} day(s). Tap any to view.`,
+          tasks: completed.slice(0, 8).map((t) => ({
+            id: t.id,
+            title: t.title,
+            due_date: t.due_date ?? undefined,
+            difficulty: t.difficulty,
+          })),
+          actions,
+        };
+      }
+
+      if (isOverviewRequest(input)) {
+        const snapshot = buildContextSnapshot(tasks);
+        const top = openTasks.slice(0, 6).map((t) => ({
+          id: t.id,
+          title: t.title,
+          due_date: t.due_date ?? undefined,
+          difficulty: t.difficulty,
+        }));
+        return {
+          text: `${snapshot} Here are a few open items:`,
+          tasks: top,
+          actions,
+        };
       }
 
       const taskReply = interpretTaskQuery(input);
@@ -612,6 +838,7 @@ export default function PlannerScreen() {
       // Task name/entity matching
       const related = findRelatedTasks(input, openTasks);
       if (related && related.length) {
+        related.forEach((t) => rememberTaskMessage(t.id, ASSISTANT_LIBRARY_MAIN, input));
         return {
           text: "Here are the tasks that match what you mentioned. Tap to open any of them.",
           tasks: related.map((t) => ({
@@ -620,8 +847,71 @@ export default function PlannerScreen() {
             due_date: t.due_date ?? undefined,
             difficulty: t.difficulty,
           })),
+          actions,
         };
       }
+
+      const summaryRange = needsSummary(input);
+      if (summaryRange) {
+        const { items, title } = summarizeTasks(summaryRange as "today" | "week" | "overdue", openTasks);
+        if (items.length) {
+          return {
+            text: `${title}: tap to open or long-press to quick edit.`,
+            tasks: items.map((t) => ({
+              id: t.id,
+              title: t.title,
+              due_date: t.due_date ?? undefined,
+              difficulty: t.difficulty,
+            })),
+            actions,
+          };
+        }
+      }
+
+      if (wantsOverdueNavigation(input)) {
+        actions.push({ type: "SET_TASK_FILTER", payload: { filter: "overdue" } });
+        actions.push({ type: "NAVIGATE", payload: { route: "/(tabs)/tasks/tasks", params: { filter: "overdue" } } });
+        return { text: "Opening overdue tasks.", actions };
+      }
+
+      if (wantsOldestOverdueComplete(input)) {
+        const oldest = openTasks
+          .map((t) => ({ t, due: parseDueDate(t.due_date ?? null) }))
+          .filter(({ due }) => due && diffInDays(due) !== null && diffInDays(due)! < 0)
+          .sort((a, b) => a.due!.getTime() - b.due!.getTime())[0];
+        if (!oldest) return { text: "No overdue tasks to complete.", actions };
+        actions.push({ type: "COMPLETE_TASK", payload: { id: oldest.t.id, value: true } });
+        return { text: `Marked "${oldest.t.title}" as complete.`, actions };
+      }
+
+      if (wantsPlannerRefresh(input)) {
+        actions.push({ type: "NAVIGATE", payload: { route: "/(tabs)/planner/planner" } });
+        actions.push({ type: "REFRESH_PLAN" });
+        return { text: "Opening Planner and refreshing your plan.", actions };
+      }
+
+      if (wantsAlertsOff(input)) {
+        actions.push({ type: "SET_SETTING", payload: { key: "notificationsEnabled", value: false } });
+        return { text: "Turning alerts off.", actions };
+      }
+
+      if (wantsQuickActionCompleted(input)) {
+        actions.push({ type: "UPDATE_NAV_QUICK_ACTION", payload: { navId: "tasks", actionId: "completed" } });
+        return { text: "Updated Tasks quick action to 'Completed tasks'.", actions };
+      }
+
+      if (isOverviewRequest(input)) {
+        const snapshot = buildContextSnapshot(tasks);
+        const top = openTasks.slice(0, 6).map((t) => ({
+          id: t.id,
+          title: t.title,
+          due_date: t.due_date ?? undefined,
+          difficulty: t.difficulty,
+        }));
+        return { text: `${snapshot} Here are a few open items:`, tasks: top, actions };
+      }
+
+      const tone = detectTone(input);
 
       const planKeywords = /plan|schedule|today|start|tackle|do first|what now|where to start/i.test(input);
       if (planKeywords) {
@@ -657,6 +947,7 @@ export default function PlannerScreen() {
             due_date: t.due_date ?? undefined,
             difficulty: t.difficulty,
           })),
+          actions,
         };
       }
 
@@ -668,6 +959,7 @@ export default function PlannerScreen() {
       const selection = await selectResponse(match.top?.intent ?? null, {
         userMessage: input,
         library: libraryType,
+        preferredGroup: tone === "coach" ? "coach" : undefined,
       });
 
       if (ASSISTANT_DEBUG) {
@@ -680,9 +972,9 @@ export default function PlannerScreen() {
         });
       }
 
-      return { text: selection.text };
+      return { text: selection.text, actions };
     },
-    [ensureLibraries, interpretTaskQuery, openTasks]
+    [ensureLibraries, interpretTaskQuery, openTasks, tasks]
   );
 
   const handleSendMessage = useCallback(async () => {
@@ -699,8 +991,21 @@ export default function PlannerScreen() {
         from: "bot",
         text: typeof botPayload === "string" ? botPayload : botPayload.text,
         tasks: typeof botPayload === "string" ? undefined : botPayload.tasks,
+        actions: typeof botPayload === "string" ? undefined : botPayload.actions,
       };
       setChatMessages((prev) => [...prev, botMessage]);
+
+      if (botMessage.actions?.length) {
+        await runAssistantActions(botMessage.actions, {
+          onTasksChanged: async () => {
+            await loadTasks(true);
+          },
+          onRefreshPlan: async () => {
+            await loadTasks(true);
+          },
+          debug: ASSISTANT_DEBUG,
+        });
+      }
     } catch (error) {
       console.error("[assistant_engine] Failed to respond:", error);
       setChatMessages((prev) => [
@@ -712,7 +1017,7 @@ export default function PlannerScreen() {
         },
       ]);
     }
-  }, [chatInput, generateAssistantReply]);
+  }, [chatInput, generateAssistantReply, loadTasks]);
 
   const handleClearChat = useCallback(() => {
     setChatMessages([INITIAL_CHAT_MESSAGE]);

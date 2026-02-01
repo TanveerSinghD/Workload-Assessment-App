@@ -5,3 +5,4 @@ export * from "./classify";
 export * from "./matchIntent";
 export * from "./selectResponse";
 export * from "./historyStore";
+export * from "./taskMemory";
