@@ -27,6 +27,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { Intent, getLibraries, isGreetingMessage, matchIntent, selectResponse } from "@/assistant_engine";
 
 type Task = {
   id: number;
@@ -59,28 +60,7 @@ const INITIAL_CHAT_MESSAGE: ChatMessage = {
   text: "Hi! Ask me what to tackle first, how to schedule your day, or to break down a task.",
 };
 
-const TRAINING_SET: { prompt: string; response: string }[] = [
-  {
-    prompt: "what should i tackle first",
-    response: "Start with anything overdue or due today, then one deep-focus task, then clear a quick win.",
-  },
-  {
-    prompt: "study plan",
-    response: "Use 45–60 minute focus blocks with 10 minute breaks. Mix one tough topic with review or flashcards.",
-  },
-  {
-    prompt: "too many tasks",
-    response: "Pick one important task, one quick win, and one cleanup item. Defer or delete anything not due soon.",
-  },
-  {
-    prompt: "break down task",
-    response: "Split it into a research step, an outline/todo list, then one or two focused work blocks.",
-  },
-  {
-    prompt: "overwhelmed",
-    response: "Breathe, pick the smallest next step, and set a 20 minute timer. Progress beats perfection.",
-  },
-];
+const ASSISTANT_DEBUG = __DEV__ && false; // toggle to true in dev to see matching logs
 
 // Parse stored date into a JS Date at midnight
 function parseDueDate(due: string | null | undefined) {
@@ -123,6 +103,80 @@ function computeEnergy(task: Task): "deep" | "shallow" {
   return "shallow";
 }
 
+function isMathExpression(text: string) {
+  const cleaned = text.replace(/\s+/g, "");
+  return /^[\d.+\-*/()%^]+$/.test(cleaned) && /\d/.test(cleaned);
+}
+
+function tryEvalMath(text: string): number | null {
+  if (!isMathExpression(text)) return null;
+  const normalized = text.replace(/\^/g, "**");
+  try {
+    const result = Function(`"use strict"; return (${normalized});`)();
+    if (typeof result === "number" && Number.isFinite(result)) return result;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+const STOPWORDS = new Set([
+  "show",
+  "me",
+  "all",
+  "my",
+  "the",
+  "tasks",
+  "task",
+  "please",
+  "and",
+  "of",
+  "to",
+  "a",
+  "for",
+  "list",
+  "display",
+  "do",
+  "tell",
+  "about",
+  "next",
+  "due",
+]);
+
+function extractKeywords(message: string) {
+  return message
+    .toLowerCase()
+    .split(/\s+/)
+    .map((w) => w.replace(/[^a-z0-9]/g, ""))
+    .filter((w) => w.length >= 3 && !STOPWORDS.has(w));
+}
+
+function scoreTaskMatch(keywords: string[], task: Task) {
+  const haystack = `${task.title} ${task.notes ?? ""} ${task.subject ?? ""}`.toLowerCase();
+  if (!keywords.length) return 0;
+  let hits = 0;
+  keywords.forEach((kw) => {
+    if (haystack.includes(kw)) hits += 1;
+  });
+  return hits / keywords.length;
+}
+
+function findRelatedTasks(message: string, tasks: Task[]) {
+  const keywords = extractKeywords(message);
+  const scored = tasks
+    .map((t) => ({ task: t, score: scoreTaskMatch(keywords, t) }))
+    .filter((t) => t.score >= 0.2)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 8);
+  if (scored.length) return scored.map((s) => s.task);
+
+  // If user mentioned "tasks" but no keyword hits, fall back to all open tasks (limited)
+  if (message.toLowerCase().includes("task")) {
+    return tasks.slice(0, 8);
+  }
+  return null;
+}
+
 export default function PlannerScreen() {
   const scheme = useColorScheme();
   const dark = scheme === "dark";
@@ -131,6 +185,8 @@ export default function PlannerScreen() {
   useScrollToTop(scrollRef);
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
+  const intentsRef = useRef<Intent[] | null>(null);
+  const greetingsRef = useRef<Intent[] | null>(null);
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -176,6 +232,16 @@ export default function PlannerScreen() {
       loadTasks(false);
     }, [loadTasks])
   );
+
+  const ensureLibraries = useCallback(async () => {
+    if (intentsRef.current && greetingsRef.current) {
+      return { main: intentsRef.current, greetings: greetingsRef.current };
+    }
+    const libs = await getLibraries();
+    intentsRef.current = libs.main;
+    greetingsRef.current = libs.greetings;
+    return libs;
+  }, []);
 
   const openTasks = useMemo(() => tasks.filter((t) => !t.completed), [tasks]);
   const overdueTasks = useMemo(() => {
@@ -485,15 +551,6 @@ export default function PlannerScreen() {
     };
   }, [navigation, chatOpen]);
 
-  const scorePrompt = useCallback((input: string) => {
-    const clean = input.toLowerCase();
-    return TRAINING_SET.map((item) => {
-      const words = item.prompt.split(/\s+/);
-      const hits = words.reduce((acc, w) => (clean.includes(w) ? acc + 1 : acc), 0);
-      return { item, score: hits };
-    }).sort((a, b) => b.score - a.score)[0];
-  }, []);
-
   const interpretTaskQuery = useCallback(
     (input: string) => {
       const clean = input.toLowerCase();
@@ -542,42 +599,120 @@ export default function PlannerScreen() {
     [openTasks]
   );
 
-  const generateBotReply = useCallback(
-    (input: string) => {
+  const generateAssistantReply = useCallback(
+    async (input: string) => {
+      const mathResult = tryEvalMath(input);
+      if (mathResult !== null) {
+        return { text: `${input.replace(/\s+/g, " ")} = ${mathResult}` };
+      }
+
       const taskReply = interpretTaskQuery(input);
       if (taskReply) return taskReply;
 
-      const best = scorePrompt(input);
-      if (best?.score && best.score > 0) return best.item.response;
-      if (/plan|schedule|today/i.test(input))
-        return { text: "Start with one priority block, one quick win, then any overdue items. Keep blocks under 60 minutes." };
-      if (/task|break/i.test(input))
-        return { text: "Break it into: clarify goal, list 3 steps, start with a 20 minute timer." };
-      return {
-        text: "I’m here to help with planning. Ask me what to do first, how to structure study time, or how to break tasks down.",
-      };
+      // Task name/entity matching
+      const related = findRelatedTasks(input, openTasks);
+      if (related && related.length) {
+        return {
+          text: "Here are the tasks that match what you mentioned. Tap to open any of them.",
+          tasks: related.map((t) => ({
+            id: t.id,
+            title: t.title,
+            due_date: t.due_date ?? undefined,
+            difficulty: t.difficulty,
+          })),
+        };
+      }
+
+      const planKeywords = /plan|schedule|today|start|tackle|do first|what now|where to start/i.test(input);
+      if (planKeywords) {
+        const overdue = openTasks
+          .map((t) => ({ ...t, days: diffInDays(parseDueDate(t.due_date ?? null)) }))
+          .filter((t) => t.days !== null && t.days < 0)
+          .sort((a, b) => (a.days ?? 0) - (b.days ?? 0));
+        const dueToday = openTasks
+          .map((t) => ({ ...t, days: diffInDays(parseDueDate(t.due_date ?? null)) }))
+          .filter((t) => t.days === 0);
+        const soon = openTasks
+          .map((t) => ({ ...t, days: diffInDays(parseDueDate(t.due_date ?? null)) }))
+          .filter((t) => t.days !== null && t.days > 0)
+          .sort((a, b) => (a.days ?? 0) - (b.days ?? 0));
+
+        const list: Task[] = [];
+        if (overdue.length) list.push(...overdue.slice(0, 2));
+        if (dueToday.length) list.push(...dueToday.slice(0, 2));
+        if (soon.length) list.push(...soon.slice(0, 2));
+
+        const headline =
+          overdue.length > 0
+            ? "Fix overdue first, then today’s highest effort, then a quick win."
+            : dueToday.length > 0
+            ? "Tackle today’s deadlines, then one deep focus item, then a quick win."
+            : "No deadlines today—schedule one deep block and one quick win.";
+
+        return {
+          text: `${headline} Tap a task to open it.`,
+          tasks: list.map((t) => ({
+            id: t.id,
+            title: t.title,
+            due_date: t.due_date ?? undefined,
+            difficulty: t.difficulty,
+          })),
+        };
+      }
+
+      const libs = await ensureLibraries();
+      const isGreeting = isGreetingMessage(input);
+      const libraryType = isGreeting ? "greet" : "main";
+      const pool = isGreeting ? libs.greetings : libs.main;
+      const match = matchIntent(input, pool);
+      const selection = await selectResponse(match.top?.intent ?? null, {
+        userMessage: input,
+        library: libraryType,
+      });
+
+      if (ASSISTANT_DEBUG) {
+        console.log("[assistant_engine] matched", {
+          library: libraryType,
+          intent: match.top?.intent?.id,
+          score: match.top?.score,
+          group: selection.group,
+          index: selection.index,
+        });
+      }
+
+      return { text: selection.text };
     },
-    [interpretTaskQuery, scorePrompt]
+    [ensureLibraries, interpretTaskQuery, openTasks]
   );
 
-  const handleSendMessage = useCallback(() => {
+  const handleSendMessage = useCallback(async () => {
     const trimmed = chatInput.trim();
     if (!trimmed) return;
     const userMessage: ChatMessage = { id: `u-${Date.now()}`, from: "user", text: trimmed };
     setChatMessages((prev) => [...prev, userMessage]);
     setChatInput("");
 
-    const botPayload = generateBotReply(trimmed);
-    const botMessage: ChatMessage = {
-      id: `b-${Date.now()}`,
-      from: "bot",
-      text: typeof botPayload === "string" ? botPayload : botPayload.text,
-      tasks: typeof botPayload === "string" ? undefined : botPayload.tasks,
-    };
-    setTimeout(() => {
+    try {
+      const botPayload = await generateAssistantReply(trimmed);
+      const botMessage: ChatMessage = {
+        id: `b-${Date.now()}`,
+        from: "bot",
+        text: typeof botPayload === "string" ? botPayload : botPayload.text,
+        tasks: typeof botPayload === "string" ? undefined : botPayload.tasks,
+      };
       setChatMessages((prev) => [...prev, botMessage]);
-    }, 180);
-  }, [chatInput, generateBotReply]);
+    } catch (error) {
+      console.error("[assistant_engine] Failed to respond:", error);
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: `b-${Date.now()}`,
+          from: "bot",
+          text: "Something went wrong generating a reply. Try again in a moment.",
+        },
+      ]);
+    }
+  }, [chatInput, generateAssistantReply]);
 
   const handleClearChat = useCallback(() => {
     setChatMessages([INITIAL_CHAT_MESSAGE]);

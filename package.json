@@ -8,7 +8,8 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "test:assistant": "tsx scripts/test-assistant-engine.ts"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -57,7 +58,8 @@
     "baseline-browser-mapping": "^2.9.16",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~10.0.0",
-    "typescript": "~5.9.2"
+    "typescript": "~5.9.2",
+    "tsx": "^4.7.1"
   },
   "private": true
 }
