@@ -50,6 +50,7 @@ type ChatMessage = {
   id: string;
   from: "user" | "bot";
   text: string;
+  tasks?: Pick<Task, "id" | "title" | "due_date" | "difficulty">[];
 };
 
 const INITIAL_CHAT_MESSAGE: ChatMessage = {
@@ -493,17 +494,70 @@ export default function PlannerScreen() {
     }).sort((a, b) => b.score - a.score)[0];
   }, []);
 
+  const interpretTaskQuery = useCallback(
+    (input: string) => {
+      const clean = input.toLowerCase();
+      const wantDifficulty =
+        /hard/.test(clean) ? "hard" : /medium/.test(clean) ? "medium" : /easy/.test(clean) ? "easy" : null;
+      const wantOverdue = /overdue|late|past due/.test(clean);
+      const wantToday = /today|tonight/.test(clean);
+      const wantWeek = /this week|next 7|coming week/.test(clean);
+      const wantNextWeek = /next week/.test(clean);
+
+      if (!(wantDifficulty || wantOverdue || wantToday || wantWeek || wantNextWeek)) return null;
+
+      const filtered = openTasks.filter((task) => {
+        if (wantDifficulty && task.difficulty !== wantDifficulty) return false;
+
+        const due = parseDueDate(task.due_date ?? null);
+        const diff = diffInDays(due);
+        if (wantOverdue) return diff !== null && diff < 0;
+        if (wantToday) return diff === 0;
+        if (wantWeek) return diff !== null && diff >= 0 && diff <= 7;
+        if (wantNextWeek) return diff !== null && diff >= 7 && diff <= 14;
+        return true;
+      });
+
+      const labelParts = [];
+      if (wantDifficulty) labelParts.push(`${wantDifficulty} tasks`);
+      if (wantOverdue) labelParts.push("overdue");
+      else if (wantToday) labelParts.push("due today");
+      else if (wantWeek) labelParts.push("due this week");
+      else if (wantNextWeek) labelParts.push("due next week");
+
+      const header = labelParts.length ? labelParts.join(", ") : "Matching tasks";
+      if (filtered.length === 0) return { text: `${header}: none found.` };
+
+      const summary = `${header}: tap to open.`;
+      return {
+        text: summary,
+        tasks: filtered.slice(0, 12).map((t) => ({
+          id: t.id,
+          title: t.title,
+          due_date: t.due_date ?? undefined,
+          difficulty: t.difficulty,
+        })),
+      };
+    },
+    [openTasks]
+  );
+
   const generateBotReply = useCallback(
     (input: string) => {
+      const taskReply = interpretTaskQuery(input);
+      if (taskReply) return taskReply;
+
       const best = scorePrompt(input);
       if (best?.score && best.score > 0) return best.item.response;
       if (/plan|schedule|today/i.test(input))
-        return "Start with one priority block, one quick win, then any overdue items. Keep blocks under 60 minutes.";
+        return { text: "Start with one priority block, one quick win, then any overdue items. Keep blocks under 60 minutes." };
       if (/task|break/i.test(input))
-        return "Break it into: clarify goal, list 3 steps, start with a 20 minute timer.";
-      return "I’m here to help with planning. Ask me what to do first, how to structure study time, or how to break tasks down.";
+        return { text: "Break it into: clarify goal, list 3 steps, start with a 20 minute timer." };
+      return {
+        text: "I’m here to help with planning. Ask me what to do first, how to structure study time, or how to break tasks down.",
+      };
     },
-    [scorePrompt]
+    [interpretTaskQuery, scorePrompt]
   );
 
   const handleSendMessage = useCallback(() => {
@@ -513,8 +567,13 @@ export default function PlannerScreen() {
     setChatMessages((prev) => [...prev, userMessage]);
     setChatInput("");
 
-    const botText = generateBotReply(trimmed);
-    const botMessage: ChatMessage = { id: `b-${Date.now()}`, from: "bot", text: botText };
+    const botPayload = generateBotReply(trimmed);
+    const botMessage: ChatMessage = {
+      id: `b-${Date.now()}`,
+      from: "bot",
+      text: typeof botPayload === "string" ? botPayload : botPayload.text,
+      tasks: typeof botPayload === "string" ? undefined : botPayload.tasks,
+    };
     setTimeout(() => {
       setChatMessages((prev) => [...prev, botMessage]);
     }, 180);
@@ -925,23 +984,56 @@ export default function PlannerScreen() {
                   <View style={styles.chatBody}>
                     <ScrollView
                       ref={chatScrollRef}
-                      keyboardShouldPersistTaps="handled"
+                      keyboardShouldPersistTaps="always"
                       contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 24, gap: 10, flexGrow: 1 }}
                       showsVerticalScrollIndicator={false}
+                      scrollEventThrottle={16}
+                      alwaysBounceVertical
                     >
-                      {chatMessages.map((msg) => (
-                        <View
-                          key={msg.id}
-                          style={[
-                            styles.chatRow,
-                            msg.from === "user" ? styles.chatRowUser : styles.chatRowBot,
-                          ]}
-                        >
-                          <Text style={[styles.chatRowText, { color: msg.from === "user" ? "#fff" : text }]}>
-                            {msg.text}
-                          </Text>
-                        </View>
-                      ))}
+                      {chatMessages.map((msg) => {
+                        const isUser = msg.from === "user";
+                        return (
+                          <View
+                            key={msg.id}
+                            style={[
+                              styles.chatRow,
+                              isUser ? styles.chatRowUser : styles.chatRowBot,
+                            ]}
+                          >
+                            <Text style={[styles.chatRowText, { color: isUser ? "#fff" : text }]}>
+                              {msg.text}
+                            </Text>
+                            {!isUser && msg.tasks && msg.tasks.length > 0 && (
+                              <View style={styles.chatTaskList}>
+                                {msg.tasks.map((t) => (
+                                  <TouchableOpacity
+                                    key={t.id}
+                                    style={[
+                                      styles.chatTaskPill,
+                                      {
+                                        backgroundColor: dark ? "#1C2740" : "#F5F8FF",
+                                        borderColor: dark ? "#2E3B55" : "#D0D7E5",
+                                      },
+                                    ]}
+                                    activeOpacity={0.9}
+                                    delayPressIn={120}
+                                    onPress={() => handleOpenTask(t.id)}
+                                  >
+                                    <Text style={[styles.chatTaskTitle, { color: text }]}>
+                                      {t.title}
+                                    </Text>
+                                    {t.due_date ? (
+                                      <Text style={[styles.chatTaskDue, { color: subtle }]}>
+                                        Due {t.due_date}
+                                      </Text>
+                                    ) : null}
+                                  </TouchableOpacity>
+                                ))}
+                              </View>
+                            )}
+                          </View>
+                        );
+                      })}
                     </ScrollView>
                   </View>
 
@@ -1334,6 +1426,26 @@ const styles = StyleSheet.create({
   chatRowText: {
     fontSize: 14,
     lineHeight: 20,
+  },
+  chatTaskList: {
+    marginTop: 8,
+    gap: 6,
+  },
+  chatTaskPill: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderColor: "#D0D7E5",
+    backgroundColor: "#F5F8FF",
+  },
+  chatTaskTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  chatTaskDue: {
+    fontSize: 13,
+    marginTop: 2,
   },
   chatInputBar: {
     flexDirection: "row",
