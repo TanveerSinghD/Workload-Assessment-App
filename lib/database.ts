@@ -314,6 +314,26 @@ export async function updateTask(task: {
   );
 }
 
+export async function updateTaskDueDate(id: number, due_date: string | null) {
+  const userId = await getActiveUserId();
+  if (!userId) throw new Error("No active user session");
+  await db.runAsync("UPDATE tasks SET due_date = ? WHERE id = ? AND user_id = ?", [due_date, id, userId]);
+}
+
+export async function updateManyTaskDueDates(updates: { id: number; due_date: string | null }[]) {
+  if (!updates.length) return;
+  const userId = await getActiveUserId();
+  if (!userId) throw new Error("No active user session");
+  const stmt = await db.prepareAsync("UPDATE tasks SET due_date = ? WHERE id = ? AND user_id = ?");
+  try {
+    for (const { id, due_date } of updates) {
+      await stmt.executeAsync([due_date, id, userId]);
+    }
+  } finally {
+    await stmt.finalizeAsync();
+  }
+}
+
 // Delete a single task
 export async function deleteTask(id: number) {
   const userId = await getActiveUserId();

@@ -1,6 +1,6 @@
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useThemeColors } from "../../../hooks/use-theme-colors";
-import { addTask, getTasks } from "@/lib/database";
+import { addTask, getTasks, updateManyTaskDueDates } from "@/lib/database";
 import { updateAvailabilityWithFeedback } from "@/utils/availabilityFeedback";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useScrollToTop } from "@react-navigation/native";
@@ -37,10 +37,13 @@ import {
 } from "@/assistant_engine";
 import { AssistantAction } from "@/assistant_actions/types";
 import { runAssistantActions } from "@/assistant_actions/registry";
+import { parseDateQuery, toISODateLocal, formatISODate } from "@/plannerAssistant/dateUtils";
+import { detectPlannerIntent, isCancellation, isConfirmation } from "@/plannerAssistant/intents";
 
 type Task = {
   id: number;
   title: string;
+  subject?: string | null;
   notes?: string | null;
   difficulty: "easy" | "medium" | "hard";
   due_date?: string | null;
@@ -86,6 +89,109 @@ function diffInDays(date: Date | null) {
   today.setHours(0, 0, 0, 0);
   const diff = date.getTime() - today.getTime();
   return Math.round(diff / (1000 * 60 * 60 * 24));
+}
+
+const DIFFICULTY_RANK: Record<Task["difficulty"], number> = { hard: 0, medium: 1, easy: 2 };
+
+function sortTasksForDisplay(list: Task[]) {
+  return [...list].sort((a, b) => {
+    const aDate = a.due_date ?? "";
+    const bDate = b.due_date ?? "";
+    if (aDate !== bDate) return aDate.localeCompare(bDate);
+    const aRank = DIFFICULTY_RANK[a.difficulty] ?? 3;
+    const bRank = DIFFICULTY_RANK[b.difficulty] ?? 3;
+    return aRank - bRank;
+  });
+}
+
+function getTasksDueOnDate(tasks: Task[], isoDate: string) {
+  return sortTasksForDisplay(tasks.filter((t) => !t.completed && t.due_date === isoDate));
+}
+
+function getTasksDueInRange(tasks: Task[], startISO: string, endISO: string) {
+  return sortTasksForDisplay(
+    tasks.filter((t) => {
+      if (t.completed) return false;
+      const due = t.due_date;
+      return due && due >= startISO && due <= endISO;
+    })
+  );
+}
+
+function summarizeBusiestDays(tasks: Task[], limit = 3) {
+  const counts = new Map<string, number>();
+  tasks.forEach((t) => {
+    if (!t.due_date) return;
+    counts.set(t.due_date, (counts.get(t.due_date) ?? 0) + 1);
+  });
+  const top = Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit);
+  if (!top.length) return "No tasks scheduled.";
+  return top.map(([iso, count]) => `${formatISODate(iso, { withWeekday: true })} (${count})`).join(", ");
+}
+
+type RescheduleMove = { id: number; title: string; fromISO: string; toISO: string };
+type PendingReschedulePlan = { sourceISO: string; moves: RescheduleMove[]; needsConfirmation: boolean };
+
+function buildCandidateDays(sourceISO: string, nowISO: string) {
+  const source = new Date(`${sourceISO}T00:00:00`);
+  const today = new Date(`${nowISO}T00:00:00`);
+  const days: string[] = [];
+  if (source >= today) days.push(nowISO);
+  for (let i = 1; i <= 6; i += 1) {
+    const d = new Date(source);
+    d.setDate(d.getDate() + i);
+    const iso = toISODateLocal(d);
+    if (iso >= nowISO) days.push(iso);
+  }
+  return Array.from(new Set(days));
+}
+
+function buildReschedulePlan(
+  tasksToMove: Task[],
+  sourceISO: string,
+  openTasks: Task[],
+  destinationISO?: string,
+  nowISO?: string
+): PendingReschedulePlan | null {
+  if (!tasksToMove.length) return { sourceISO, moves: [], needsConfirmation: false };
+  const candidateDays = destinationISO ? [destinationISO] : buildCandidateDays(sourceISO, nowISO ?? toISODateLocal(new Date()));
+  const filtered = candidateDays.filter((d) => d !== sourceISO);
+  if (!filtered.length) return null;
+
+  const load = new Map<string, number>();
+  filtered.forEach((day) => {
+    const count = openTasks.filter((t) => !t.completed && t.due_date === day).length;
+    load.set(day, count);
+  });
+
+  const sorted = [...tasksToMove].sort((a, b) => (DIFFICULTY_RANK[a.difficulty] ?? 3) - (DIFFICULTY_RANK[b.difficulty] ?? 3));
+  const moves: RescheduleMove[] = [];
+
+  sorted.forEach((task) => {
+    const target = filtered.reduce((best, day) => {
+      if (!best) return day;
+      const current = load.get(day) ?? 0;
+      const bestLoad = load.get(best) ?? 0;
+      return current < bestLoad ? day : best;
+    }, filtered[0]);
+    load.set(target, (load.get(target) ?? 0) + 1);
+    moves.push({ id: task.id, title: task.title, fromISO: sourceISO, toISO: target });
+  });
+
+  return { sourceISO, moves, needsConfirmation: moves.length > 3 };
+}
+
+function describePlan(plan: PendingReschedulePlan) {
+  const fromLabel = formatISODate(plan.sourceISO, { withWeekday: true });
+  const destSet = Array.from(new Set(plan.moves.map((m) => m.toISO)));
+  const destLabel = destSet.map((d) => formatISODate(d, { withWeekday: true })).join(" · ");
+  const detail = plan.moves
+    .slice(0, 6)
+    .map((m) => `• ${m.title} → ${formatISODate(m.toISO, { withWeekday: true })}`)
+    .join("\n");
+  return { fromLabel, destLabel, detail };
 }
 
 function estimateMinutes(task: Task) {
@@ -298,6 +404,26 @@ function detectTone(message: string) {
   return "neutral";
 }
 
+function mapTasksForChat(tasks: Task[]) {
+  return tasks.map((t) => ({
+    id: t.id,
+    title: t.title,
+    due_date: t.due_date ?? undefined,
+    difficulty: t.difficulty,
+  }));
+}
+
+function extractDestinationDate(text: string, now: Date, timezone?: string) {
+  const lower = text.toLowerCase();
+  const toIndex = lower.indexOf(" to ");
+  if (toIndex === -1) return null;
+  const candidate = text.slice(toIndex + 4).trim();
+  if (!candidate) return null;
+  const parsed = parseDateQuery(candidate, now, timezone);
+  if (parsed && parsed.type === "day") return parsed.startISO;
+  return null;
+}
+
 function parseCreateTaskRequest(message: string) {
   const lower = message.toLowerCase();
   if (!/(add|create).*(task)/.test(lower)) return null;
@@ -358,6 +484,7 @@ export default function PlannerScreen() {
   const navigation = useNavigation();
   const intentsRef = useRef<Intent[] | null>(null);
   const greetingsRef = useRef<Intent[] | null>(null);
+  const pendingPlanRef = useRef<PendingReschedulePlan | null>(null);
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -773,10 +900,93 @@ export default function PlannerScreen() {
   const generateAssistantReply = useCallback(
     async (input: string) => {
       const actions: AssistantAction[] = [];
+      const now = new Date();
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+      const nowISO = toISODateLocal(now);
+      const lowerInput = input.trim().toLowerCase();
+
+      if (pendingPlanRef.current) {
+        if (isConfirmation(lowerInput)) {
+          const plan = pendingPlanRef.current;
+          pendingPlanRef.current = null;
+          await updateManyTaskDueDates(plan.moves.map((m) => ({ id: m.id, due_date: m.toISO })));
+          await loadTasks(true);
+          const { fromLabel, destLabel, detail } = describePlan(plan);
+          return {
+            text: `Moved ${plan.moves.length} task${plan.moves.length === 1 ? "" : "s"} off ${fromLabel} to ${destLabel}.${detail ? `\n${detail}` : ""}`,
+            actions,
+          };
+        }
+        if (isCancellation(lowerInput)) {
+          pendingPlanRef.current = null;
+          return { text: "Cancelled the pending reschedule.", actions };
+        }
+      }
 
       const mathResult = tryEvalMath(input);
       if (mathResult !== null) {
         return { text: `${input.replace(/\s+/g, " ")} = ${mathResult}`, actions };
+      }
+
+      const plannerIntent = detectPlannerIntent(lowerInput);
+      const dateQuery = parseDateQuery(input, now, timezone);
+
+      if (plannerIntent === "SHOW_TASKS") {
+        if (!dateQuery) {
+          return { text: "Tell me which day or month to show (e.g. “tasks tomorrow”, “24 April”, or “April next year”).", actions };
+        }
+        if (dateQuery.confidence === "low" && dateQuery.type === "day") {
+          const assumed = formatISODate(dateQuery.startISO, { withWeekday: true });
+          return { text: `I’m reading that as ${assumed} (DD/MM). If that’s wrong, tell me the month name.`, actions };
+        }
+
+        if (dateQuery.type === "day") {
+          const list = getTasksDueOnDate(openTasks, dateQuery.startISO);
+          const label = formatISODate(dateQuery.startISO, { withWeekday: true });
+          if (!list.length) return { text: `You’re clear on ${label} 🎉`, actions };
+          return { text: `${list.length} task${list.length === 1 ? "" : "s"} on ${label}.`, tasks: mapTasksForChat(list), actions };
+        }
+
+        const rangeTasks = getTasksDueInRange(openTasks, dateQuery.startISO, dateQuery.endISO);
+        const monthLabel = new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric" }).format(
+          new Date(`${dateQuery.startISO}T00:00:00`)
+        );
+        if (!rangeTasks.length) {
+          return { text: `${monthLabel}: nothing scheduled.`, actions };
+        }
+        const busy = summarizeBusiestDays(rangeTasks);
+        return {
+          text: `${monthLabel}: ${rangeTasks.length} task${rangeTasks.length === 1 ? "" : "s"}. Busiest days: ${busy}.`,
+          tasks: mapTasksForChat(rangeTasks.slice(0, 20)),
+          actions,
+        };
+      }
+
+      if (plannerIntent === "FREE_UP_DAY") {
+        if (!dateQuery || dateQuery.type !== "day") {
+          return { text: "Tell me which day to clear (e.g. “free up my day tomorrow”).", actions };
+        }
+        const targetISO = dateQuery.startISO;
+        const targetLabel = formatISODate(targetISO, { withWeekday: true });
+        const tasksOnDay = getTasksDueOnDate(openTasks, targetISO);
+        if (!tasksOnDay.length) {
+          return { text: `${targetLabel} is already free.`, actions };
+        }
+        const destinationISO = extractDestinationDate(input, now, timezone) ?? undefined;
+        const plan = buildReschedulePlan(tasksOnDay, targetISO, openTasks, destinationISO, nowISO);
+        if (!plan) {
+          return { text: "I couldn't find a safe day to move these to. Try giving a destination date.", actions };
+        }
+
+        const { fromLabel, destLabel, detail } = describePlan(plan);
+        if (plan.needsConfirmation) {
+          pendingPlanRef.current = plan;
+          return { text: `I can move ${plan.moves.length} task${plan.moves.length === 1 ? "" : "s"} from ${fromLabel} to ${destLabel}. Confirm?${detail ? `\n${detail}` : ""}`, actions };
+        }
+
+        await updateManyTaskDueDates(plan.moves.map((m) => ({ id: m.id, due_date: m.toISO })));
+        await loadTasks(true);
+        return { text: `Moved ${plan.moves.length} task${plan.moves.length === 1 ? "" : "s"} off ${fromLabel} to ${destLabel}.${detail ? `\n${detail}` : ""}`, actions };
       }
 
       const createRequest = parseCreateTaskRequest(input);
@@ -974,7 +1184,7 @@ export default function PlannerScreen() {
 
       return { text: selection.text, actions };
     },
-    [ensureLibraries, interpretTaskQuery, openTasks, tasks]
+    [ensureLibraries, interpretTaskQuery, loadTasks, openTasks, tasks]
   );
 
   const handleSendMessage = useCallback(async () => {
