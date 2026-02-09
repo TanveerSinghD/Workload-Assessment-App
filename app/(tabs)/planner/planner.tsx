@@ -413,6 +413,10 @@ function mapTasksForChat(tasks: Task[]) {
   }));
 }
 
+function sanitizeIntentPrefix(text: string) {
+  return text.replace(/^intent intent_\d{3,6}:\s*/i, "").trim();
+}
+
 function extractDestinationDate(text: string, now: Date, timezone?: string) {
   const lower = text.toLowerCase();
   const toIndex = lower.indexOf(" to ");
@@ -1165,7 +1169,7 @@ export default function PlannerScreen() {
       const isGreeting = isGreetingMessage(input);
       const libraryType = isGreeting ? "greet" : "main";
       const pool = isGreeting ? libs.greetings : libs.main;
-      const match = matchIntent(input, pool);
+      const match = matchIntent(input, pool, 0.22);
       const selection = await selectResponse(match.top?.intent ?? null, {
         userMessage: input,
         library: libraryType,
@@ -1182,7 +1186,8 @@ export default function PlannerScreen() {
         });
       }
 
-      return { text: selection.text, actions };
+      const safeText = sanitizeIntentPrefix(selection.text);
+      return { text: safeText || "I’m not sure how to answer that. Want to review today’s tasks?", actions };
     },
     [ensureLibraries, interpretTaskQuery, loadTasks, openTasks, tasks]
   );
