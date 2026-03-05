@@ -29,6 +29,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Intent,
+  LibraryType,
   getLibraries,
   isGreetingMessage,
   matchIntent,
@@ -39,6 +40,18 @@ import { AssistantAction } from "@/assistant_actions/types";
 import { runAssistantActions } from "@/assistant_actions/registry";
 import { parseDateQuery, toISODateLocal, formatISODate } from "@/plannerAssistant/dateUtils";
 import { detectPlannerIntent, isCancellation, isConfirmation } from "@/plannerAssistant/intents";
+import {
+  ConversationContext,
+  ConversationTaskRef,
+  createConversationContext,
+  detectIntent as detectConversationIntent,
+  extractDateRef,
+  extractMoveTarget,
+  isExplicitDateRef,
+  resolveDateRef,
+  updateContextForList,
+  updateContextForMove,
+} from "@/plannerAssistant/conversation";
 
 type Task = {
   id: number;
@@ -62,6 +75,12 @@ type PlannedTask = Task & {
 type ChatMessage = {
   id: string;
   from: "user" | "bot";
+  text: string;
+  tasks?: Pick<Task, "id" | "title" | "due_date" | "difficulty">[];
+  actions?: AssistantAction[];
+};
+
+type AssistantReplyPayload = {
   text: string;
   tasks?: Pick<Task, "id" | "title" | "due_date" | "difficulty">[];
   actions?: AssistantAction[];
@@ -413,6 +432,13 @@ function mapTasksForChat(tasks: Task[]) {
   }));
 }
 
+function mapTasksForConversationContext(tasks: Task[]): ConversationTaskRef[] {
+  return tasks.map((task) => ({
+    id: String(task.id),
+    title: task.title,
+  }));
+}
+
 function sanitizeIntentPrefix(text: string) {
   return text.replace(/^intent intent_\d{3,6}:\s*/i, "").trim();
 }
@@ -501,6 +527,10 @@ export default function PlannerScreen() {
   const chatScrollRef = useRef<ScrollView>(null);
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([INITIAL_CHAT_MESSAGE]);
+  const [conversationContext, setConversationContext] = useState<ConversationContext>(() =>
+    createConversationContext(new Date())
+  );
+  const conversationContextRef = useRef<ConversationContext>(conversationContext);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   // Same global colours as the rest of the app
@@ -834,6 +864,10 @@ export default function PlannerScreen() {
   }, [chatMessages]);
 
   useEffect(() => {
+    conversationContextRef.current = conversationContext;
+  }, [conversationContext]);
+
+  useEffect(() => {
     const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
     const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
     const showSub = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
@@ -854,7 +888,7 @@ export default function PlannerScreen() {
   }, [navigation, chatOpen]);
 
   const interpretTaskQuery = useCallback(
-    (input: string) => {
+    (input: string): AssistantReplyPayload | null => {
       const clean = input.toLowerCase();
       const wantDifficulty =
         /hard/.test(clean) ? "hard" : /medium/.test(clean) ? "medium" : /easy/.test(clean) ? "easy" : null;
@@ -902,12 +936,21 @@ export default function PlannerScreen() {
   );
 
   const generateAssistantReply = useCallback(
-    async (input: string) => {
+    async (input: string): Promise<AssistantReplyPayload> => {
       const actions: AssistantAction[] = [];
       const now = new Date();
       const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
       const nowISO = toISODateLocal(now);
       const lowerInput = input.trim().toLowerCase();
+      let context: ConversationContext = {
+        ...conversationContextRef.current,
+        nowISO,
+      };
+      const commitContext = (next: ConversationContext) => {
+        context = next;
+        conversationContextRef.current = next;
+        setConversationContext(next);
+      };
 
       if (pendingPlanRef.current) {
         if (isConfirmation(lowerInput)) {
@@ -930,6 +973,140 @@ export default function PlannerScreen() {
       const mathResult = tryEvalMath(input);
       if (mathResult !== null) {
         return { text: `${input.replace(/\s+/g, " ")} = ${mathResult}`, actions };
+      }
+
+      const conversationalIntent = detectConversationIntent(input);
+      const dateRef = extractDateRef(input);
+      let resolvedDateISO = resolveDateRef(dateRef, context, now);
+      const explicitMentionISO = isExplicitDateRef(dateRef) ? resolvedDateISO : null;
+
+      if (conversationalIntent === "LIST_TASKS") {
+        if (!resolvedDateISO) {
+          const fallbackDate = parseDateQuery(input, now, timezone);
+          if (fallbackDate?.type === "day") {
+            resolvedDateISO = fallbackDate.startISO;
+          } else if (fallbackDate?.type === "range") {
+            const rangeTasks = getTasksDueInRange(openTasks, fallbackDate.startISO, fallbackDate.endISO);
+            const monthLabel = new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric" }).format(
+              new Date(`${fallbackDate.startISO}T00:00:00`)
+            );
+            commitContext(
+              updateContextForList(
+                context,
+                fallbackDate.startISO,
+                mapTasksForConversationContext(rangeTasks.slice(0, 20)),
+                fallbackDate.startISO
+              )
+            );
+            if (!rangeTasks.length) {
+              return { text: `${monthLabel}: nothing scheduled.`, actions };
+            }
+            const busy = summarizeBusiestDays(rangeTasks);
+            return {
+              text: `${monthLabel}: ${rangeTasks.length} task${rangeTasks.length === 1 ? "" : "s"}. Busiest days: ${busy}.`,
+              tasks: mapTasksForChat(rangeTasks.slice(0, 20)),
+              actions,
+            };
+          }
+        }
+
+        if (!resolvedDateISO) {
+          return {
+            text: "Tell me the date to check (for example: 8th, 8th of March, March 8, or next Tuesday).",
+            actions,
+          };
+        }
+
+        const list = getTasksDueOnDate(openTasks, resolvedDateISO);
+        commitContext(
+          updateContextForList(
+            context,
+            resolvedDateISO,
+            mapTasksForConversationContext(list),
+            explicitMentionISO ?? resolvedDateISO
+          )
+        );
+
+        if (!list.length) {
+          return { text: `No tasks on ${resolvedDateISO}.`, actions };
+        }
+        return {
+          text: `${list.length} task${list.length === 1 ? "" : "s"} on ${resolvedDateISO}.`,
+          tasks: mapTasksForChat(list),
+          actions,
+        };
+      }
+
+      if (conversationalIntent === "MOVE_TASK") {
+        if (!resolvedDateISO) {
+          const toIndex = lowerInput.lastIndexOf(" to ");
+          if (toIndex !== -1) {
+            const suffix = input.slice(toIndex + 4).trim();
+            const suffixDateRef = extractDateRef(suffix);
+            resolvedDateISO = resolveDateRef(suffixDateRef, context, now);
+          }
+        }
+        if (!resolvedDateISO) {
+          resolvedDateISO = extractDestinationDate(input, now, timezone);
+        }
+        if (!resolvedDateISO) {
+          return {
+            text: "Tell me the date to move to (for example: tomorrow, the 8th, or next Tuesday).",
+            actions,
+          };
+        }
+
+        const moveTarget = extractMoveTarget(
+          input,
+          context,
+          openTasks.map((task) => ({ id: String(task.id), title: task.title }))
+        );
+
+        if (moveTarget.kind === "clarify") {
+          const options = moveTarget.options
+            .map((task, index) => `${index + 1}. ${task.title}`)
+            .join(" | ");
+          return {
+            text: `Which task should I move? ${options}`,
+            actions,
+          };
+        }
+
+        if (moveTarget.kind === "none") {
+          if (moveTarget.reason === "not_found") {
+            return { text: "I couldn't find that task title. Try quoting the exact title.", actions };
+          }
+          return {
+            text: "Tell me which task to move (quoted title, first/second/third/last, it, or them all).",
+            actions,
+          };
+        }
+
+        const idSet = new Set(moveTarget.taskIds);
+        const tasksToMove = openTasks.filter((task) => idSet.has(String(task.id)));
+        if (!tasksToMove.length) {
+          return { text: "I couldn't find that task in your current open list.", actions };
+        }
+
+        await updateManyTaskDueDates(tasksToMove.map((task) => ({ id: task.id, due_date: resolvedDateISO })));
+        await loadTasks(true);
+
+        commitContext(
+          updateContextForMove(
+            context,
+            resolvedDateISO,
+            mapTasksForConversationContext(tasksToMove),
+            explicitMentionISO ?? resolvedDateISO
+          )
+        );
+
+        if (tasksToMove.length === 1) {
+          return { text: `Moved '${tasksToMove[0].title}' to ${resolvedDateISO}.`, actions };
+        }
+        return {
+          text: `Moved ${tasksToMove.length} tasks to ${resolvedDateISO}.`,
+          actions,
+        };
       }
 
       const plannerIntent = detectPlannerIntent(lowerInput);
@@ -1237,6 +1414,9 @@ export default function PlannerScreen() {
   const handleClearChat = useCallback(() => {
     setChatMessages([INITIAL_CHAT_MESSAGE]);
     setChatInput("");
+    const resetContext = createConversationContext(new Date());
+    conversationContextRef.current = resetContext;
+    setConversationContext(resetContext);
   }, []);
 
   return (
