@@ -408,12 +408,24 @@ export default function TasksScreen() {
 
         </ScrollView>
 
-        {/* Floating Add Button */}
-        <Link href="/add-assignment" asChild>
-          <TouchableOpacity style={[styles.fab, { backgroundColor: accent }]}>
-            <Ionicons name="add" size={32} color="#fff" />
-          </TouchableOpacity>
-        </Link>
+        {/* FAB START: Quick add task */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Add new task"
+          onPress={() => router.push("/add-assignment")}
+          style={({ pressed }) => [
+            styles.fab,
+            {
+              backgroundColor: "#007AFF",
+              bottom: insets.bottom + 76,
+              transform: [{ scale: pressed ? 0.95 : 1 }],
+              opacity: pressed ? 0.92 : 1,
+            },
+          ]}
+        >
+          <Ionicons name="add" size={30} color="#fff" />
+        </Pressable>
+        {/* FAB END */}
       </View>
     </SafeAreaView>
   );
@@ -545,15 +557,15 @@ const styles = StyleSheet.create({
   fab: {
     position: "absolute",
     right: 20,
-    bottom: 110,
     width: 60,
     height: 60,
     borderRadius: 30,
     justifyContent: "center",
     alignItems: "center",
+    zIndex: 30,
     shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
     shadowOffset: { width: 0, height: 3 },
     elevation: 5,
   },
