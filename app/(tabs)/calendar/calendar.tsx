@@ -6,7 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { Alert, Modal, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Alert, Animated, Modal, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Calendar } from "react-native-calendars";
 import { useScrollToTop } from "@react-navigation/native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -48,6 +48,9 @@ export default function CalendarScreen() {
 
   const [showYearPicker, setShowYearPicker] = useState(false);
   const [showMonthPicker, setShowMonthPicker] = useState(false);
+  // Accordion: today is open by default, rest are collapsed
+  const [expandedDays, setExpandedDays] = useState<Set<string>>(() => new Set([new Date().toISOString().split("T")[0]]));
+  const accordionAnims = useRef<Record<string, Animated.Value>>({});
   const headerHeight = insets.top + 8;
 
   const formatDateLabel = useCallback(
@@ -265,57 +268,27 @@ export default function CalendarScreen() {
         }
       >
         {/* HEADER */}
-        <View
-          style={[
-            styles.headerRow,
-            {
-              backgroundColor: colors.surface,
-              borderColor: colors.borderSubtle,
-            },
-          ]}
-        >
-          <TouchableOpacity onPress={goPrevMonth} style={styles.arrowButton}>
-            <Text style={[styles.arrow, { color: isDark ? colors.textPrimary : colors.accentBlue }]}>
-              {"<"}
-            </Text>
+        <View style={styles.headerRow}>
+          <TouchableOpacity onPress={goPrevMonth} style={styles.arrowButton} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <Ionicons name="chevron-back" size={22} color={colors.accentBlue} />
           </TouchableOpacity>
 
           <TouchableOpacity
-            onPress={() => {
-              resetSelected();
-              setShowYearPicker(true);
-            }}
+            onPress={() => { resetSelected(); setShowMonthPicker(true); }}
+            onLongPress={() => { resetSelected(); setShowYearPicker(true); }}
+            style={styles.headerTitleBtn}
           >
-            <Text
-              style={[
-                styles.headerText,
-                { color: isDark ? colors.textPrimary : colors.accentBlue },
-              ]}
-            >
-              {year}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => {
-              resetSelected();
-              setShowMonthPicker(true);
-            }}
-          >
-            <Text
-              style={[
-                styles.headerText,
-                { color: isDark ? colors.textPrimary : colors.accentBlue },
-              ]}
-            >
+            <Text style={[styles.headerText, { color: colors.textPrimary }]}>
               {months[month - 1]}
             </Text>
+            <Text style={[styles.headerYear, { color: colors.textMuted }]}>
+              {year}
+            </Text>
+            <Ionicons name="chevron-down" size={14} color={colors.textMuted} style={{ marginTop: 2 }} />
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={goNextMonth} style={styles.arrowButton}>
-            <Text style={[styles.arrow, { color: isDark ? colors.textPrimary : colors.accentBlue }]}>
-              {">"}
-            </Text>
+          <TouchableOpacity onPress={goNextMonth} style={styles.arrowButton} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <Ionicons name="chevron-forward" size={22} color={colors.accentBlue} />
           </TouchableOpacity>
         </View>
 
@@ -455,89 +428,152 @@ export default function CalendarScreen() {
           </View>
 
           {!hasAgendaItems ? (
-            <Text style={[styles.noTasksText, { color: colors.textMuted }]}>
-              {selectedDate ? "No assignments due." : "No upcoming tasks in the next 7 days."}
-            </Text>
+            <View style={[styles.emptyState, { borderColor: colors.borderSubtle }]}>
+              <Ionicons name="calendar-outline" size={36} color={colors.textMuted} />
+              <Text style={[styles.noTasksText, { color: colors.textMuted, marginTop: 10 }]}>
+                {selectedDate ? "No tasks due on this day." : "No upcoming tasks in the next 7 days."}
+              </Text>
+            </View>
           ) : (
-            agendaDays.map((day) => (
-              <View key={day.date} style={[styles.agendaDayBlock, { borderColor: colors.borderSubtle }]}>
-                <View style={styles.agendaDayHeader}>
-                  <Text style={[styles.agendaDayLabel, { color: colors.textPrimary }]}>
-                    {day.label}
-                  </Text>
-                  <Text style={[styles.agendaMeta, { color: colors.textSecondary }]}>
-                    {day.items.length} {day.items.length === 1 ? "task" : "tasks"}
-                  </Text>
-                </View>
+            agendaDays.filter((d) => d.items.length > 0).map((day) => {
+              const isOverdue = day.date < todayStr;
+              const isExpanded = expandedDays.has(day.date);
 
-                {day.items.length === 0 ? (
-                  <Text style={[styles.noTasksText, { color: colors.textMuted }]}>
-                    No tasks for this day.
-                  </Text>
-                ) : (
-                  day.items.map((item) => (
-                    <TouchableOpacity
-                      key={item.id}
-                      style={[styles.taskCard, { backgroundColor: colors.surface }]}
-                      onPress={() => router.push({ pathname: "/edit-task", params: { id: String(item.id) } })}
-                      activeOpacity={0.85}
-                    >
-                        <View style={styles.taskHeaderRow}>
-                          <View
-                            style={[
-                              styles.dot,
-                              { backgroundColor: difficultyDot[item.difficulty || "medium"] },
-                            ]}
-                          />
-                          <View style={{ flex: 1 }}>
-                            <Text style={[styles.taskTitle, { color: colors.textPrimary }]}>
-                              {item.title}
-                            </Text>
-                            {!!item.subject && (
-                              <Text style={[styles.taskMeta, { color: colors.textSecondary }]}>
-                                {item.subject}
+              // Lazily create an Animated.Value per day
+              if (!accordionAnims.current[day.date]) {
+                accordionAnims.current[day.date] = new Animated.Value(isExpanded ? 1 : 0);
+              }
+              const anim = accordionAnims.current[day.date];
+
+              const toggleDay = () => {
+                const opening = !expandedDays.has(day.date);
+                setExpandedDays((prev) => {
+                  const next = new Set(prev);
+                  opening ? next.add(day.date) : next.delete(day.date);
+                  return next;
+                });
+                Animated.spring(anim, {
+                  toValue: opening ? 1 : 0,
+                  useNativeDriver: false,
+                  speed: 20,
+                  bounciness: 4,
+                }).start();
+              };
+
+              const chevronRotation = anim.interpolate({
+                inputRange: [0, 1],
+                outputRange: ["0deg", "90deg"],
+              });
+
+              return (
+                <View
+                  key={day.date}
+                  style={[
+                    styles.agendaDayBlock,
+                    {
+                      borderColor: isOverdue ? "rgba(255,69,58,0.30)" : colors.borderSubtle,
+                      backgroundColor: isOverdue
+                        ? isDark ? "rgba(255,69,58,0.06)" : "rgba(255,69,58,0.03)"
+                        : isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.01)",
+                    },
+                  ]}
+                >
+                  {/* Tappable header row — toggles the accordion */}
+                  <TouchableOpacity
+                    style={styles.agendaDayHeader}
+                    onPress={toggleDay}
+                    activeOpacity={0.7}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      {isOverdue && <Ionicons name="alert-circle" size={14} color="#FF453A" />}
+                      <Text style={[styles.agendaDayLabel, { color: isOverdue ? "#FF453A" : colors.textPrimary }]}>
+                        {day.label}
+                      </Text>
+                      <Text style={[styles.agendaMeta, { color: colors.textSecondary }]}>
+                        · {day.items.length} {day.items.length === 1 ? "task" : "tasks"}
+                      </Text>
+                    </View>
+                    <Animated.View style={{ transform: [{ rotate: chevronRotation }] }}>
+                      <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                    </Animated.View>
+                  </TouchableOpacity>
+
+                  {/* Collapsible task list */}
+                  {isExpanded && (
+                    <View style={{ marginTop: 6 }}>
+                      {day.items.map((item) => (
+                        <TouchableOpacity
+                          key={item.id}
+                          style={[
+                            styles.taskCard,
+                            {
+                              backgroundColor: item.completed
+                                ? isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)"
+                                : colors.surface,
+                            },
+                          ]}
+                          onPress={() => router.push({ pathname: "/edit-task", params: { id: String(item.id) } })}
+                          activeOpacity={0.85}
+                        >
+                          <View style={styles.taskHeaderRow}>
+                            <View
+                              style={[
+                                styles.dot,
+                                {
+                                  backgroundColor: item.completed
+                                    ? colors.textMuted
+                                    : difficultyDot[item.difficulty || "medium"],
+                                },
+                              ]}
+                            />
+                            <View style={{ flex: 1 }}>
+                              <Text
+                                style={[
+                                  styles.taskTitle,
+                                  {
+                                    color: colors.textPrimary,
+                                    textDecorationLine: item.completed ? "line-through" : "none",
+                                    opacity: item.completed ? 0.5 : 1,
+                                  },
+                                ]}
+                              >
+                                {item.title}
                               </Text>
-                            )}
+                              {!!item.subject && (
+                                <Text style={[styles.taskMeta, { color: colors.textSecondary }]}>
+                                  {item.subject}
+                                </Text>
+                              )}
+                            </View>
                           </View>
-                        </View>
-                        <View style={styles.taskFooterRow}>
-                          <Text style={[styles.taskDue, { color: colors.textMuted }]}>
-                            Due {item.due_date}
-                          </Text>
-                          <View style={styles.taskActions}>
-                            <TouchableOpacity
-                              style={[
-                                styles.taskActionBtn,
-                                { borderColor: colors.borderSubtle, backgroundColor: isDark ? "#17304C" : "#EAF2FF" },
-                              ]}
-                              onPress={(event) => {
-                                event.stopPropagation();
-                                handleToggleComplete(item);
-                              }}
-                              accessibilityLabel={`Mark ${item.title} complete`}
-                            >
-                              <Ionicons name="checkmark" size={14} color={isDark ? "#8FC0FF" : "#0A84FF"} />
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              style={[
-                                styles.taskActionBtn,
-                                { borderColor: colors.borderSubtle, backgroundColor: isDark ? "#282D37" : "#F2F4F8" },
-                              ]}
-                              onPress={(event) => {
-                                event.stopPropagation();
-                                handleQuickActions(item);
-                              }}
-                              accessibilityLabel={`More actions for ${item.title}`}
-                            >
-                              <Ionicons name="ellipsis-horizontal" size={14} color={colors.textMuted} />
-                            </TouchableOpacity>
+                          <View style={styles.taskFooterRow}>
+                            <Text style={[styles.taskDue, { color: isOverdue && !item.completed ? "#FF453A" : colors.textMuted }]}>
+                              {isOverdue && !item.completed ? "Overdue · " : "Due "}{item.due_date}
+                            </Text>
+                            <View style={styles.taskActions}>
+                              <TouchableOpacity
+                                style={[styles.taskActionBtn, { borderColor: colors.borderSubtle, backgroundColor: isDark ? "#17304C" : "#EAF2FF" }]}
+                                onPress={(e) => { e.stopPropagation(); handleToggleComplete(item); }}
+                                accessibilityLabel={`Mark ${item.title} complete`}
+                              >
+                                <Ionicons name="checkmark" size={14} color={isDark ? "#8FC0FF" : "#0A84FF"} />
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                style={[styles.taskActionBtn, { borderColor: colors.borderSubtle, backgroundColor: isDark ? "#282D37" : "#F2F4F8" }]}
+                                onPress={(e) => { e.stopPropagation(); handleQuickActions(item); }}
+                                accessibilityLabel={`More actions for ${item.title}`}
+                              >
+                                <Ionicons name="ellipsis-horizontal" size={14} color={colors.textMuted} />
+                              </TouchableOpacity>
+                            </View>
                           </View>
-                        </View>
-                    </TouchableOpacity>
-                  ))
-                )}
-              </View>
-            ))
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              );
+            })
           )}
         </View>
       </ScrollView>
@@ -545,24 +581,21 @@ export default function CalendarScreen() {
       {/* PICKERS */}
       {/* YEAR PICKER */}
       <Modal visible={showYearPicker} transparent animationType="fade">
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          onPress={() => setShowYearPicker(false)}
-        >
-          <TouchableOpacity style={styles.modalBox} activeOpacity={1}>
-            <Text style={styles.modalTitle}>Select Year</Text>
-
-            {[2025, 2026, 2027].map((y) => (
+        <TouchableOpacity style={styles.modalOverlay} onPress={() => setShowYearPicker(false)}>
+          <TouchableOpacity
+            style={[styles.modalBox, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}
+            activeOpacity={1}
+          >
+            <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Select Year</Text>
+            {[today.getFullYear() - 1, today.getFullYear(), today.getFullYear() + 1, today.getFullYear() + 2].map((y) => (
               <TouchableOpacity
                 key={y}
-                style={styles.modalItem}
-                onPress={() => {
-                  resetSelected();
-                  setYear(y);
-                  setShowYearPicker(false);
-                }}
+                style={[styles.modalItem, y === year && { backgroundColor: `${colors.accentBlue}18`, borderRadius: 10 }]}
+                onPress={() => { resetSelected(); setYear(y); setShowYearPicker(false); }}
               >
-                <Text style={{ fontSize: 18 }}>{y}</Text>
+                <Text style={[styles.modalItemText, { color: y === year ? colors.accentBlue : colors.textPrimary, fontWeight: y === year ? "700" : "500" }]}>
+                  {y}
+                </Text>
               </TouchableOpacity>
             ))}
           </TouchableOpacity>
@@ -571,23 +604,21 @@ export default function CalendarScreen() {
 
       {/* MONTH PICKER */}
       <Modal visible={showMonthPicker} transparent animationType="fade">
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          onPress={() => setShowMonthPicker(false)}
-        >
-          <TouchableOpacity style={styles.modalBox} activeOpacity={1}>
-            <Text style={styles.modalTitle}>Select Month</Text>
+        <TouchableOpacity style={styles.modalOverlay} onPress={() => setShowMonthPicker(false)}>
+          <TouchableOpacity
+            style={[styles.modalBox, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}
+            activeOpacity={1}
+          >
+            <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Select Month</Text>
             {months.map((m, i) => (
               <TouchableOpacity
                 key={m}
-                style={styles.modalItem}
-                onPress={() => {
-                  resetSelected();
-                  setMonth(i + 1);
-                  setShowMonthPicker(false);
-                }}
+                style={[styles.modalItem, (i + 1) === month && { backgroundColor: `${colors.accentBlue}18`, borderRadius: 10 }]}
+                onPress={() => { resetSelected(); setMonth(i + 1); setShowMonthPicker(false); }}
               >
-                <Text style={{ fontSize: 18 }}>{m}</Text>
+                <Text style={[styles.modalItemText, { color: (i + 1) === month ? colors.accentBlue : colors.textPrimary, fontWeight: (i + 1) === month ? "700" : "500" }]}>
+                  {m}
+                </Text>
               </TouchableOpacity>
             ))}
           </TouchableOpacity>
@@ -611,21 +642,22 @@ const styles = StyleSheet.create({
   headerRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
+    paddingHorizontal: 8,
     alignItems: "center",
     marginHorizontal: 16,
     marginBottom: 14,
-    borderWidth: 1,
-    borderRadius: 16,
-    paddingVertical: 6,
-    alignSelf: "center",
-    width: "90%",
-    maxWidth: 360,
   },
   arrowButton: {
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 10,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerTitleBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
   quickRow: {
     flexDirection: "row",
@@ -667,15 +699,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
 
-  arrow: {
-    fontSize: 28,
-    fontWeight: "600",
-    paddingHorizontal: 6,
-  },
-
   headerText: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: "800",
+  },
+  headerYear: {
+    fontSize: 16,
+    fontWeight: "500",
   },
 
   taskListContainer: {
@@ -689,7 +719,16 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   noTasksText: {
-    fontSize: 16,
+    fontSize: 15,
+    textAlign: "center",
+  },
+  emptyState: {
+    alignItems: "center",
+    paddingVertical: 36,
+    marginTop: 8,
+    borderWidth: 1,
+    borderRadius: 16,
+    borderStyle: "dashed",
   },
 
   agendaTitle: {
@@ -779,19 +818,22 @@ const styles = StyleSheet.create({
 
   modalBox: {
     width: "80%",
-    borderRadius: 14,
+    borderRadius: 16,
     padding: 16,
-    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    maxHeight: "70%",
   },
-
   modalTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: "700",
     marginBottom: 12,
   },
-
   modalItem: {
     paddingVertical: 10,
+    paddingHorizontal: 8,
+  },
+  modalItemText: {
+    fontSize: 17,
   },
   blurHeader: {
     position: "absolute",
