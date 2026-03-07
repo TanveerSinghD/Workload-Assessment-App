@@ -17,7 +17,7 @@ async function exec(action: AssistantAction, deps: ActionDeps) {
   }
   switch (action.type) {
     case "NAVIGATE":
-      router.navigate({ pathname: action.payload.route, params: action.payload.params });
+      router.navigate({ pathname: action.payload.route as any, params: action.payload.params });
       return;
     case "SET_TASK_FILTER":
       router.navigate({ pathname: "/(tabs)/tasks/tasks", params: { filter: action.payload.filter } });

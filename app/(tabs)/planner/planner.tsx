@@ -14,6 +14,7 @@ import {
   Easing,
   Keyboard,
   KeyboardAvoidingView,
+  Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Platform,
@@ -527,6 +528,8 @@ export default function PlannerScreen() {
   const chatScrollRef = useRef<ScrollView>(null);
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([INITIAL_CHAT_MESSAGE]);
+  const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
+  const [taskListModal, setTaskListModal] = useState<{ title: string; tasks: PlannedTask[] } | null>(null);
   const [conversationContext, setConversationContext] = useState<ConversationContext>(() =>
     createConversationContext(new Date())
   );
@@ -1545,7 +1548,7 @@ export default function PlannerScreen() {
             </Text>
 
             <View style={{ marginTop: 10, gap: 10 }}>
-              {overdueTasks.map((task, index) => (
+              {overdueTasks.slice(0, 3).map((task) => (
                 <TouchableOpacity
                   key={task.id}
                   style={[
@@ -1571,6 +1574,15 @@ export default function PlannerScreen() {
                   ) : null}
                 </TouchableOpacity>
               ))}
+              {overdueTasks.length > 3 && (
+                <TouchableOpacity
+                  style={styles.showAllBtn}
+                  activeOpacity={0.8}
+                  onPress={() => setTaskListModal({ title: "Overdue tasks", tasks: overdueTasks })}
+                >
+                  <Text style={styles.showAllText}>Show all {overdueTasks.length} overdue →</Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         )}
@@ -1628,7 +1640,7 @@ export default function PlannerScreen() {
               </View>
 
               <View style={{ marginTop: 14 }}>
-                {agentPlan.prioritized.map((task, index) => (
+                {agentPlan.prioritized.slice(0, 3).map((task, index) => (
                   <TouchableOpacity
                     key={task.id}
                     style={[
@@ -1652,6 +1664,15 @@ export default function PlannerScreen() {
                     ) : null}
                   </TouchableOpacity>
                 ))}
+                {agentPlan.prioritized.length > 3 && (
+                  <TouchableOpacity
+                    style={styles.showAllBtn}
+                    activeOpacity={0.8}
+                    onPress={() => setTaskListModal({ title: "Today's game plan", tasks: agentPlan.prioritized })}
+                  >
+                    <Text style={styles.showAllText}>Show all {agentPlan.prioritized.length} tasks →</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             </>
           )}
@@ -1838,34 +1859,55 @@ export default function PlannerScreen() {
                             <Text style={[styles.chatRowText, { color: isUser ? "#fff" : text }]}>
                               {msg.text}
                             </Text>
-                            {!isUser && msg.tasks && msg.tasks.length > 0 && (
-                              <View style={styles.chatTaskList}>
-                                {msg.tasks.map((t) => (
-                                  <TouchableOpacity
-                                    key={t.id}
-                                    style={[
-                                      styles.chatTaskPill,
-                                      {
-                                        backgroundColor: dark ? "#1C2740" : "#F5F8FF",
-                                        borderColor: dark ? "#2E3B55" : "#D0D7E5",
-                                      },
-                                    ]}
-                                    activeOpacity={0.9}
-                                    delayPressIn={120}
-                                    onPress={() => handleOpenTask(t.id)}
-                                  >
-                                    <Text style={[styles.chatTaskTitle, { color: text }]}>
-                                      {t.title}
-                                    </Text>
-                                    {t.due_date ? (
-                                      <Text style={[styles.chatTaskDue, { color: subtle }]}>
-                                        Due {t.due_date}
+                            {!isUser && msg.tasks && msg.tasks.length > 0 && (() => {
+                              const isExpanded = expandedMessages.has(msg.id);
+                              const visibleTasks = isExpanded ? msg.tasks : msg.tasks.slice(0, 3);
+                              const hiddenCount = msg.tasks.length - 3;
+                              return (
+                                <View style={styles.chatTaskList}>
+                                  {visibleTasks.map((t) => (
+                                    <TouchableOpacity
+                                      key={t.id}
+                                      style={[
+                                        styles.chatTaskPill,
+                                        {
+                                          backgroundColor: dark ? "#1C2740" : "#F5F8FF",
+                                          borderColor: dark ? "#2E3B55" : "#D0D7E5",
+                                        },
+                                      ]}
+                                      activeOpacity={0.9}
+                                      delayPressIn={120}
+                                      onPress={() => handleOpenTask(t.id)}
+                                    >
+                                      <Text style={[styles.chatTaskTitle, { color: text }]}>
+                                        {t.title}
                                       </Text>
-                                    ) : null}
-                                  </TouchableOpacity>
-                                ))}
-                              </View>
-                            )}
+                                      {t.due_date ? (
+                                        <Text style={[styles.chatTaskDue, { color: subtle }]}>
+                                          Due {t.due_date}
+                                        </Text>
+                                      ) : null}
+                                    </TouchableOpacity>
+                                  ))}
+                                  {!isExpanded && hiddenCount > 0 && (
+                                    <TouchableOpacity
+                                      style={styles.showMoreBtn}
+                                      onPress={() =>
+                                        setExpandedMessages((prev) => {
+                                          const next = new Set(prev);
+                                          next.add(msg.id);
+                                          return next;
+                                        })
+                                      }
+                                    >
+                                      <Text style={styles.showMoreText}>
+                                        Show all {msg.tasks.length} →
+                                      </Text>
+                                    </TouchableOpacity>
+                                  )}
+                                </View>
+                              );
+                            })()}
                           </View>
                         );
                       })}
@@ -1901,6 +1943,47 @@ export default function PlannerScreen() {
           </TouchableWithoutFeedback>
         )}
       </View>
+
+      {/* Full task list modal */}
+      <Modal
+        visible={taskListModal !== null}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setTaskListModal(null)}
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: background }}>
+          <View style={styles.modalHeader}>
+            <Text style={[styles.modalTitle, { color: text }]}>{taskListModal?.title}</Text>
+            <TouchableOpacity onPress={() => setTaskListModal(null)} style={styles.modalClose}>
+              <Ionicons name="close" size={22} color={text} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={styles.modalContent}>
+            {taskListModal?.tasks.map((task) => (
+              <TouchableOpacity
+                key={task.id}
+                style={[styles.taskRow, { borderColor: border, backgroundColor: dark ? "#1F1F23" : "#F7F8FA" }]}
+                activeOpacity={0.85}
+                onPress={() => {
+                  setTaskListModal(null);
+                  handleOpenTask(task.id);
+                }}
+              >
+                <View style={[styles.rankDot, { backgroundColor: (task.daysUntil ?? 0) < 0 ? "#FF453A" : "#0A84FF" }]} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.taskTitle, { color: text }]}>{task.title}</Text>
+                  <Text style={[styles.taskReason, { color: subtle }]}>
+                    {task.reason}
+                  </Text>
+                </View>
+                {task.due_date ? (
+                  <Text style={[styles.badge, { color: text, borderColor: border }]}>Due {task.due_date}</Text>
+                ) : null}
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -2281,6 +2364,47 @@ const styles = StyleSheet.create({
   chatTaskDue: {
     fontSize: 13,
     marginTop: 2,
+  },
+  showAllBtn: {
+    marginTop: 4,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  showAllText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#0A84FF",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(0,0,0,0.08)",
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+  },
+  modalClose: {
+    padding: 4,
+  },
+  modalContent: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 40,
+  },
+  showMoreBtn: {
+    marginTop: 4,
+    paddingVertical: 8,
+    alignItems: "center",
+  },
+  showMoreText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#0A84FF",
   },
   chatInputBar: {
     flexDirection: "row",

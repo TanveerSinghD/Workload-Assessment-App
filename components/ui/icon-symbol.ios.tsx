@@ -40,7 +40,7 @@ export function IconSymbol({
       resizeMode="scaleAspectFit"
       name={name}
       // Ensures icons still render in Expo Go / missing native modules.
-      fallback={<MaterialIcons name={toMaterialName(name)} color={color} size={size} style={style} />}
+      fallback={<MaterialIcons name={toMaterialName(name)} color={color} size={size} style={style as any} />}
       style={[
         {
           width: size,

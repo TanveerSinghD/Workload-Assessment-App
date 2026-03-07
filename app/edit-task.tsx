@@ -95,7 +95,7 @@ export default function EditTaskScreen() {
   const years = useMemo(() => {
     const currentYear = new Date().getFullYear();
     const maxYear = currentYear + 1;
-    const minYear = 2025;
+    const minYear = currentYear - 1;
 
     const list = [];
     for (let y = minYear; y <= maxYear; y++) list.push(String(y));

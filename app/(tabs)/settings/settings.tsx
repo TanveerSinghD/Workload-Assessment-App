@@ -1,8 +1,8 @@
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useAuth } from "@/hooks/useAuth";
 import { useThemeColors } from "../../../hooks/use-theme-colors";
-import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
-import { router } from "expo-router";
+import { useScrollToTop } from "@react-navigation/native";
+import { router, useFocusEffect } from "expo-router";
 import { BlurView } from "expo-blur";
 import * as Clipboard from "expo-clipboard";
 import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";

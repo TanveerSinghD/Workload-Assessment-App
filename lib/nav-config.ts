@@ -37,7 +37,7 @@ export const quickActionRegistry: Record<
   },
   goHome: {
     label: "Go to Home",
-    run: (router) => router.navigate("/(tabs)/index/index"),
+    run: (router) => router.navigate("/(tabs)/index/index" as any),
   },
   new_task: {
     label: "New task",
