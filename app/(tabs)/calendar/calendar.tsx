@@ -2,8 +2,9 @@ import { getTasks } from "@/lib/database";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useThemeColors } from "../../../hooks/use-theme-colors";
 import { updateAvailabilityWithFeedback } from "@/utils/availabilityFeedback";
+import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
-import { Link, router, useFocusEffect } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Alert, Modal, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Calendar } from "react-native-calendars";
@@ -475,16 +476,12 @@ export default function CalendarScreen() {
                   </Text>
                 ) : (
                   day.items.map((item) => (
-                    <Link
+                    <TouchableOpacity
                       key={item.id}
-                      href={{ pathname: "/edit-task", params: { id: item.id } }}
-                      asChild
+                      style={[styles.taskCard, { backgroundColor: colors.surface }]}
+                      onPress={() => router.push({ pathname: "/edit-task", params: { id: String(item.id) } })}
+                      activeOpacity={0.85}
                     >
-                      <TouchableOpacity
-                        style={[styles.taskCard, { backgroundColor: colors.surface }]}
-                        onLongPress={() => handleQuickActions(item)}
-                        activeOpacity={0.85}
-                      >
                         <View style={styles.taskHeaderRow}>
                           <View
                             style={[
@@ -503,11 +500,40 @@ export default function CalendarScreen() {
                             )}
                           </View>
                         </View>
-                        <Text style={[styles.taskDue, { color: colors.textMuted }]}>
-                          Due {item.due_date}
-                        </Text>
-                      </TouchableOpacity>
-                    </Link>
+                        <View style={styles.taskFooterRow}>
+                          <Text style={[styles.taskDue, { color: colors.textMuted }]}>
+                            Due {item.due_date}
+                          </Text>
+                          <View style={styles.taskActions}>
+                            <TouchableOpacity
+                              style={[
+                                styles.taskActionBtn,
+                                { borderColor: colors.borderSubtle, backgroundColor: isDark ? "#17304C" : "#EAF2FF" },
+                              ]}
+                              onPress={(event) => {
+                                event.stopPropagation();
+                                handleToggleComplete(item);
+                              }}
+                              accessibilityLabel={`Mark ${item.title} complete`}
+                            >
+                              <Ionicons name="checkmark" size={14} color={isDark ? "#8FC0FF" : "#0A84FF"} />
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[
+                                styles.taskActionBtn,
+                                { borderColor: colors.borderSubtle, backgroundColor: isDark ? "#282D37" : "#F2F4F8" },
+                              ]}
+                              onPress={(event) => {
+                                event.stopPropagation();
+                                handleQuickActions(item);
+                              }}
+                              accessibilityLabel={`More actions for ${item.title}`}
+                            >
+                              <Ionicons name="ellipsis-horizontal" size={14} color={colors.textMuted} />
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                    </TouchableOpacity>
                   ))
                 )}
               </View>
@@ -723,6 +749,25 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#666",
     marginTop: 2,
+  },
+  taskFooterRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 8,
+  },
+  taskActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  taskActionBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   modalOverlay: {

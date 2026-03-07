@@ -514,12 +514,37 @@ export default function HomeScreen() {
                 style={[styles.assignmentCard, { backgroundColor: card, borderColor: border }]}
                 activeOpacity={0.85}
                 onPress={() => handleOpenTask(task.id)}
-                onLongPress={() => handleQuickActions(task)}
               >
-                <Text style={{ color: text, fontSize: 16, fontWeight: "700" }}>{task.title}</Text>
-                <Text style={{ color: subtle }}>
-                  {task.due_date ? `Due ${task.due_date}` : "No due date"}
-                </Text>
+                <View style={styles.assignmentRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: text, fontSize: 16, fontWeight: "700" }}>{task.title}</Text>
+                    <Text style={{ color: subtle }}>
+                      {task.due_date ? `Due ${task.due_date}` : "No due date"}
+                    </Text>
+                  </View>
+                  <View style={styles.taskActions}>
+                    <TouchableOpacity
+                      style={[styles.taskActionBtn, { borderColor: border, backgroundColor: dark ? "#17304C" : "#EAF2FF" }]}
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        handleToggleComplete(task);
+                      }}
+                      accessibilityLabel={`Mark ${task.title} complete`}
+                    >
+                      <Ionicons name="checkmark" size={14} color={dark ? "#8FC0FF" : "#0A84FF"} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.taskActionBtn, { borderColor: border, backgroundColor: dark ? "#282D37" : "#F2F4F8" }]}
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        handleQuickActions(task);
+                      }}
+                      accessibilityLabel={`More actions for ${task.title}`}
+                    >
+                      <Ionicons name="ellipsis-horizontal" size={14} color={subtle} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
               </TouchableOpacity>
             ))
           )}
@@ -700,5 +725,23 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     marginBottom: 12,
+  },
+  assignmentRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  taskActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  taskActionBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

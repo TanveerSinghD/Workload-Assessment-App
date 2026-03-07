@@ -1,8 +1,10 @@
 import { getTasks } from "@/lib/database";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { updateAvailabilityWithFeedback } from "@/utils/availabilityFeedback";
+import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 type Filter = "open" | "overdue" | "today" | "week" | "next3" | "next7" | "recent";
 
@@ -118,6 +120,36 @@ export default function TasksFilterScreen() {
     });
   }, [tasks, filter, daysDiff, today]);
 
+  const handleToggleComplete = useCallback(
+    async (task: Task) => {
+      const updated = await updateAvailabilityWithFeedback(task.id, true);
+      if (updated) await loadTasks();
+    },
+    [loadTasks]
+  );
+
+  const openQuickActions = useCallback(
+    (task: Task) => {
+      Alert.alert(
+        "Quick actions",
+        task.title,
+        [
+          {
+            text: "Mark as complete",
+            onPress: () => handleToggleComplete(task),
+          },
+          {
+            text: "View / Edit",
+            onPress: () => router.push({ pathname: "/edit-task", params: { id: String(task.id) } }),
+          },
+          { text: "Cancel", style: "cancel" },
+        ],
+        { userInterfaceStyle: dark ? "dark" : "light" }
+      );
+    },
+    [dark, handleToggleComplete]
+  );
+
   return (
     <View style={[styles.container, { backgroundColor: background }]}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -133,10 +165,34 @@ export default function TasksFilterScreen() {
             >
               <View style={styles.cardHeader}>
                 <Text style={[styles.cardTitle, { color: text }]}>{task.title}</Text>
-                <View style={[styles.pill, { borderColor: border }]}>
-                  <Text style={{ color: subtle }}>
-                    {task.difficulty.charAt(0).toUpperCase() + task.difficulty.slice(1)}
-                  </Text>
+                <View style={styles.headerRight}>
+                  <View style={[styles.pill, { borderColor: border }]}>
+                    <Text style={{ color: subtle }}>
+                      {task.difficulty.charAt(0).toUpperCase() + task.difficulty.slice(1)}
+                    </Text>
+                  </View>
+                  <View style={styles.taskActions}>
+                    <TouchableOpacity
+                      style={[styles.taskActionBtn, { borderColor: border, backgroundColor: dark ? "#17304C" : "#EAF2FF" }]}
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        handleToggleComplete(task);
+                      }}
+                      accessibilityLabel={`Mark ${task.title} complete`}
+                    >
+                      <Ionicons name="checkmark" size={14} color={dark ? "#8FC0FF" : "#0A84FF"} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.taskActionBtn, { borderColor: border, backgroundColor: dark ? "#282D37" : "#F2F4F8" }]}
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        openQuickActions(task);
+                      }}
+                      accessibilityLabel={`More actions for ${task.title}`}
+                    >
+                      <Ionicons name="ellipsis-horizontal" size={14} color={subtle} />
+                    </TouchableOpacity>
+                  </View>
                 </View>
               </View>
               <Text style={{ color: subtle }}>
@@ -170,6 +226,11 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     gap: 10,
   },
+  headerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   cardTitle: {
     fontSize: 17,
     fontWeight: "700",
@@ -180,5 +241,18 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 10,
     borderWidth: 1,
+  },
+  taskActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  taskActionBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

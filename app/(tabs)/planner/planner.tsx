@@ -12,13 +12,13 @@ import {
   Animated,
   Dimensions,
   Easing,
+  FlatList,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Platform,
-  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -87,6 +87,8 @@ type AssistantReplyPayload = {
   actions?: AssistantAction[];
 };
 
+type PlannerSectionKey = "hero" | "overdue" | "gameplan" | "suggested" | "how";
+
 const INITIAL_CHAT_MESSAGE: ChatMessage = {
   id: "welcome",
   from: "bot",
@@ -109,6 +111,34 @@ function diffInDays(date: Date | null) {
   today.setHours(0, 0, 0, 0);
   const diff = date.getTime() - today.getTime();
   return Math.round(diff / (1000 * 60 * 60 * 24));
+}
+
+function formatDueLabel(due: string | null | undefined) {
+  if (!due) return "No due date";
+  const dueDate = parseDueDate(due);
+  const days = diffInDays(dueDate);
+  if (days === null) return `Due ${due}`;
+  if (days < 0) return `Overdue ${Math.abs(days)}d`;
+  if (days === 0) return "Due today";
+  if (days === 1) return "Due tomorrow";
+  return `Due in ${days}d`;
+}
+
+function toClockLabel(date: Date) {
+  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function roundToNextQuarterHour(base: Date) {
+  const next = new Date(base);
+  next.setSeconds(0, 0);
+  const mins = next.getMinutes();
+  const rounded = Math.ceil(mins / 15) * 15;
+  if (rounded === 60) {
+    next.setHours(next.getHours() + 1, 0, 0, 0);
+  } else {
+    next.setMinutes(rounded, 0, 0);
+  }
+  return next;
 }
 
 const DIFFICULTY_RANK: Record<Task["difficulty"], number> = { hard: 0, medium: 1, easy: 2 };
@@ -509,8 +539,8 @@ export default function PlannerScreen() {
   const scheme = useColorScheme();
   const dark = scheme === "dark";
   const colors = useThemeColors();
-  const scrollRef = useRef<ScrollView>(null);
-  useScrollToTop(scrollRef);
+  const listRef = useRef<FlatList<PlannerSectionKey>>(null);
+  useScrollToTop(listRef);
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const intentsRef = useRef<Intent[] | null>(null);
@@ -535,6 +565,8 @@ export default function PlannerScreen() {
   );
   const conversationContextRef = useRef<ConversationContext>(conversationContext);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [showSuggestedOrder, setShowSuggestedOrder] = useState(false);
+  const [showHowItWorks, setShowHowItWorks] = useState(false);
 
   // Same global colours as the rest of the app
   const background = colors.background;
@@ -579,6 +611,12 @@ export default function PlannerScreen() {
   }, []);
 
   const openTasks = useMemo(() => tasks.filter((t) => !t.completed), [tasks]);
+  const openTaskById = useMemo(() => {
+    const map = new Map<number, Task>();
+    openTasks.forEach((task) => map.set(task.id, task));
+    return map;
+  }, [openTasks]);
+
   const overdueTasks = useMemo(() => {
     return openTasks
       .map((task) => {
@@ -747,6 +785,21 @@ export default function PlannerScreen() {
     };
   }, [openTasks]);
 
+  const scheduleTimeline = useMemo(() => {
+    const startAt = roundToNextQuarterHour(new Date());
+    let cursor = startAt;
+    return agentPlan.schedule.map((item) => {
+      const start = new Date(cursor);
+      const end = new Date(start.getTime() + item.minutes * 60 * 1000);
+      cursor = end;
+      return {
+        ...item,
+        startLabel: toClockLabel(start),
+        endLabel: toClockLabel(end),
+      };
+    });
+  }, [agentPlan.schedule]);
+
   const handleOpenTask = useCallback((id: number) => {
     router.push({ pathname: "/edit-task", params: { id: String(id) } });
   }, []);
@@ -827,6 +880,62 @@ export default function PlannerScreen() {
   const goToFilter = useCallback((filter: "overdue" | "today" | "next3" | "next7" | "open") => {
     router.push({ pathname: "/tasks-filter", params: { filter } });
   }, []);
+
+  const openAddTask = useCallback(() => {
+    router.push("/add-assignment");
+  }, []);
+
+  const handleStartNextBlock = useCallback(() => {
+    const next = scheduleTimeline[0];
+    if (!next) return;
+    handleOpenTask(next.id);
+  }, [handleOpenTask, scheduleTimeline]);
+
+  const renderTaskActions = useCallback(
+    (task: Task | undefined) => {
+      if (!task) return null;
+      return (
+        <View style={styles.rowActions}>
+          <TouchableOpacity
+            style={[
+              styles.rowActionBtn,
+              { borderColor: border, backgroundColor: dark ? "#17304C" : "#EAF2FF" },
+            ]}
+            accessibilityLabel={`Mark ${task.title} complete`}
+            onPress={(event) => {
+              event.stopPropagation();
+              handleToggleComplete(task);
+            }}
+          >
+            <Ionicons name="checkmark" size={15} color={dark ? "#8FC0FF" : "#0A84FF"} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.rowActionBtn,
+              { borderColor: border, backgroundColor: dark ? "#282D37" : "#F2F4F8" },
+            ]}
+            accessibilityLabel={`More actions for ${task.title}`}
+            onPress={(event) => {
+              event.stopPropagation();
+              handleQuickActions(task);
+            }}
+          >
+            <Ionicons name="ellipsis-horizontal" size={15} color={subtle} />
+          </TouchableOpacity>
+        </View>
+      );
+    },
+    [border, dark, handleQuickActions, handleToggleComplete, subtle]
+  );
+
+  const plannerSections = useMemo(() => {
+    const sections: PlannerSectionKey[] = ["hero"];
+    if (overdueTasks.length > 0) sections.push("overdue");
+    sections.push("gameplan");
+    if (agentPlan.sections.length > 0) sections.push("suggested");
+    sections.push("how");
+    return sections;
+  }, [agentPlan.sections.length, overdueTasks.length]);
 
   const headerHeight = insets.top + 8;
   const contentTopPadding = headerHeight + 8;
@@ -1422,37 +1531,10 @@ export default function PlannerScreen() {
     setConversationContext(resetContext);
   }, []);
 
-  return (
-    <SafeAreaView edges={["left", "right"]} style={{ flex: 1, backgroundColor: background }}>
-      <View style={[styles.container, { backgroundColor: background }]}>
-        <BlurView
-          intensity={40}
-          tint={dark ? "dark" : "light"}
-          style={[
-            styles.blurHeader,
-            { height: headerHeight, opacity: showHeaderBlur ? 1 : 0 },
-          ]}
-        />
-
-        <ScrollView
-          ref={scrollRef}
-          contentContainerStyle={[
-            styles.scrollContent,
-            { paddingTop: contentTopPadding, paddingBottom: insets.bottom + 160 },
-          ]}
-          contentInsetAdjustmentBehavior="never"
-          showsVerticalScrollIndicator={false}
-          onScroll={handleScroll}
-          scrollEventThrottle={16}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => loadTasks(true)}
-              tintColor={dark ? "#FFF" : "#000"}
-            />
-          }
-        >
-          {/* HERO / CONTROL BAR */}
+  const renderPlannerSection = useCallback(
+    ({ item }: { item: PlannerSectionKey }) => {
+      if (item === "hero") {
+        return (
           <View
             style={[
               styles.hero,
@@ -1534,8 +1616,11 @@ export default function PlannerScreen() {
               {lastRefresh ? `Updated ${lastRefresh.toLocaleTimeString()}` : "Waiting to load tasks"}
             </Text>
           </View>
+        );
+      }
 
-        {overdueTasks.length > 0 && (
+      if (item === "overdue") {
+        return (
           <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
             <View style={styles.sectionHeader}>
               <Text style={[styles.sectionTitle, { color: text }]}>Overdue tasks</Text>
@@ -1560,7 +1645,6 @@ export default function PlannerScreen() {
                   ]}
                   activeOpacity={0.85}
                   onPress={() => handleOpenTask(task.id)}
-                  onLongPress={() => handleQuickActions(task)}
                 >
                   <View style={[styles.rankDot, { backgroundColor: "#FF453A" }]} />
                   <View style={{ flex: 1 }}>
@@ -1569,9 +1653,8 @@ export default function PlannerScreen() {
                       {task.reason || `Overdue by ${Math.abs(task.daysUntil ?? 0)}d`}
                     </Text>
                   </View>
-                  {task.due_date ? (
-                    <Text style={[styles.badge, { color: text }]}>Due {task.due_date}</Text>
-                  ) : null}
+                  <Text style={[styles.badge, { color: text }]}>{formatDueLabel(task.due_date)}</Text>
+                  {renderTaskActions(task)}
                 </TouchableOpacity>
               ))}
               {overdueTasks.length > 3 && (
@@ -1585,10 +1668,12 @@ export default function PlannerScreen() {
               )}
             </View>
           </View>
-        )}
+        );
+      }
 
-        {/* PRIORITY PLAN */}
-        <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
+      if (item === "gameplan") {
+        return (
+          <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
             <View style={styles.sectionHeader}>
               <Text style={[styles.sectionTitle, { color: text }]}>Today&apos;s game plan</Text>
               <TouchableOpacity
@@ -1603,82 +1688,121 @@ export default function PlannerScreen() {
               </TouchableOpacity>
             </View>
 
-          {error ? (
-            <Text style={{ color: "#FF3B30" }}>{error}</Text>
-          ) : agentPlan.prioritized.length === 0 ? (
-            <Text style={[styles.emptyState, { color: subtle }]}>Add a task to generate a plan.</Text>
-          ) : (
-            <>
-              <Text style={[styles.summary, { color: text }]}>{agentPlan.summary}</Text>
-
-              <View style={[styles.scheduleCard, { borderColor: border }]}>
-                <View style={styles.scheduleHeader}>
-                  <Text style={[styles.sectionTitle, { color: text }]}>Schedule for today</Text>
-                  <Text style={[styles.statHint, { color: subtle }]}>{agentPlan.totalMinutes} min planned</Text>
+            {error ? (
+              <View style={styles.stateBlock}>
+                <Text style={styles.errorText}>{error}</Text>
+                <TouchableOpacity
+                  style={[styles.stateActionBtn, { borderColor: border, backgroundColor: dark ? "#17304C" : "#EAF2FF" }]}
+                  onPress={() => loadTasks(true)}
+                >
+                  <Text style={styles.stateActionText}>Retry</Text>
+                </TouchableOpacity>
+              </View>
+            ) : agentPlan.prioritized.length === 0 ? (
+              <View style={styles.stateBlock}>
+                <Text style={[styles.emptyState, { color: subtle }]}>No tasks yet. Add one to generate your plan.</Text>
+                <View style={styles.stateActionsRow}>
+                  <TouchableOpacity
+                    style={[styles.stateActionBtn, { borderColor: border, backgroundColor: dark ? "#17304C" : "#EAF2FF" }]}
+                    onPress={openAddTask}
+                  >
+                    <Text style={styles.stateActionText}>Add first task</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.stateActionBtn, { borderColor: border, backgroundColor: dark ? "#282D37" : "#F2F4F8" }]}
+                    onPress={() => loadTasks(true)}
+                  >
+                    <Text style={[styles.stateActionText, { color: subtle }]}>Refresh</Text>
+                  </TouchableOpacity>
                 </View>
-                {agentPlan.schedule.length === 0 ? (
-                  <Text style={[styles.statHint, { color: subtle }]}>Add tasks to build a schedule.</Text>
-                ) : (
-                  agentPlan.schedule.map((item, idx) => (
+              </View>
+            ) : (
+              <>
+                <Text style={[styles.summary, { color: text }]}>{agentPlan.summary}</Text>
+
+                <View style={[styles.scheduleCard, { borderColor: border }]}>
+                  <View style={styles.scheduleHeader}>
+                    <Text style={[styles.sectionTitle, { color: text }]}>Schedule for today</Text>
+                    <Text style={[styles.statHint, { color: subtle }]}>{agentPlan.totalMinutes} min planned</Text>
+                  </View>
+                  {scheduleTimeline.length > 0 ? (
                     <TouchableOpacity
-                      key={item.id}
-                      activeOpacity={0.85}
-                      onPress={() => handleOpenTask(item.id)}
-                      onLongPress={() => handleQuickActions({ ...openTasks.find((t) => t.id === item.id)! })}
-                      style={styles.scheduleRow}
+                      style={[
+                        styles.startBlockBtn,
+                        { borderColor: border, backgroundColor: dark ? "#17304C" : "#EAF2FF" },
+                      ]}
+                      onPress={handleStartNextBlock}
                     >
-                      <View style={[styles.rankDot, { backgroundColor: rankColor(idx) }]} />
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.taskTitle, { color: text }]}>{item.title}</Text>
-                        <Text style={[styles.taskReason, { color: subtle }]}>
-                          {item.minutes} min · {item.energy === "deep" ? "Deep focus" : "Quick win"}
-                        </Text>
-                      </View>
+                      <Ionicons name="play" size={14} color={dark ? "#8FC0FF" : "#0A84FF"} />
+                      <Text style={styles.startBlockText}>Start next block</Text>
                     </TouchableOpacity>
-                  ))
-                )}
-              </View>
+                  ) : null}
 
-              <View style={{ marginTop: 14 }}>
-                {agentPlan.prioritized.slice(0, 3).map((task, index) => (
-                  <TouchableOpacity
-                    key={task.id}
-                    style={[
-                      styles.taskRow,
-                      {
-                        borderColor: border,
-                        backgroundColor: dark ? "#1F1F23" : "#F7F8FA",
-                      },
-                    ]}
-                    activeOpacity={0.85}
-                    onPress={() => handleOpenTask(task.id)}
-                    onLongPress={() => handleQuickActions(task)}
-                  >
-                    <View style={[styles.rankDot, { backgroundColor: rankColor(index) }]} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.taskTitle, { color: text }]}>{task.title}</Text>
-                      <Text style={[styles.taskReason, { color: subtle }]}>{task.reason}</Text>
-                    </View>
-                    {task.due_date ? (
-                      <Text style={[styles.badge, { color: text }]}>Due {task.due_date}</Text>
-                    ) : null}
-                  </TouchableOpacity>
-                ))}
-                {agentPlan.prioritized.length > 3 && (
-                  <TouchableOpacity
-                    style={styles.showAllBtn}
-                    activeOpacity={0.8}
-                    onPress={() => setTaskListModal({ title: "Today's game plan", tasks: agentPlan.prioritized })}
-                  >
-                    <Text style={styles.showAllText}>Show all {agentPlan.prioritized.length} tasks →</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            </>
-          )}
-        </View>
+                  {scheduleTimeline.length === 0 ? (
+                    <Text style={[styles.statHint, { color: subtle }]}>Add tasks to build a schedule.</Text>
+                  ) : (
+                    scheduleTimeline.map((scheduleItem, idx) => (
+                      <TouchableOpacity
+                        key={scheduleItem.id}
+                        activeOpacity={0.85}
+                        onPress={() => handleOpenTask(scheduleItem.id)}
+                        style={styles.scheduleRow}
+                      >
+                        <View style={[styles.rankDot, { backgroundColor: rankColor(idx) }]} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.taskTitle, { color: text }]}>{scheduleItem.title}</Text>
+                          <Text style={[styles.taskReason, { color: subtle }]}>
+                            {scheduleItem.startLabel} - {scheduleItem.endLabel} · {scheduleItem.minutes} min ·{" "}
+                            {scheduleItem.energy === "deep" ? "Deep focus" : "Quick win"}
+                          </Text>
+                        </View>
+                        {renderTaskActions(openTaskById.get(scheduleItem.id))}
+                      </TouchableOpacity>
+                    ))
+                  )}
+                </View>
 
-        {agentPlan.sections.length > 0 && (
+                <View style={{ marginTop: 14 }}>
+                  {agentPlan.prioritized.slice(0, 3).map((task, index) => (
+                    <TouchableOpacity
+                      key={task.id}
+                      style={[
+                        styles.taskRow,
+                        {
+                          borderColor: border,
+                          backgroundColor: dark ? "#1F1F23" : "#F7F8FA",
+                        },
+                      ]}
+                      activeOpacity={0.85}
+                      onPress={() => handleOpenTask(task.id)}
+                    >
+                      <View style={[styles.rankDot, { backgroundColor: rankColor(index) }]} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.taskTitle, { color: text }]}>{task.title}</Text>
+                        <Text style={[styles.taskReason, { color: subtle }]}>{task.reason}</Text>
+                      </View>
+                      <Text style={[styles.badge, { color: text }]}>{formatDueLabel(task.due_date)}</Text>
+                      {renderTaskActions(task)}
+                    </TouchableOpacity>
+                  ))}
+                  {agentPlan.prioritized.length > 3 && (
+                    <TouchableOpacity
+                      style={styles.showAllBtn}
+                      activeOpacity={0.8}
+                      onPress={() => setTaskListModal({ title: "Today's game plan", tasks: agentPlan.prioritized })}
+                    >
+                      <Text style={styles.showAllText}>Show all {agentPlan.prioritized.length} tasks →</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </>
+            )}
+          </View>
+        );
+      }
+
+      if (item === "suggested") {
+        return (
           <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
             <View style={styles.sectionHeader}>
               <Text style={[styles.sectionTitle, { color: text }]}>Suggested order</Text>
@@ -1686,84 +1810,160 @@ export default function PlannerScreen() {
                 <Text style={[styles.pill, { color: subtle, borderColor: border }]}>
                   {stats.quick} quick wins · {stats.deep} deep work
                 </Text>
-                <TouchableOpacity onPress={() => goToSection("quick")} activeOpacity={0.85}>
-                  <Ionicons name="chevron-forward" size={18} color={subtle} />
+                <TouchableOpacity
+                  onPress={() => setShowSuggestedOrder((prev) => !prev)}
+                  activeOpacity={0.85}
+                  style={styles.sectionToggleBtn}
+                >
+                  <Ionicons
+                    name={showSuggestedOrder ? "chevron-up" : "chevron-down"}
+                    size={18}
+                    color={subtle}
+                  />
                 </TouchableOpacity>
               </View>
             </View>
-            <Text style={[styles.sectionHint, { color: subtle }]}>Based on urgency + effort.</Text>
 
-            <View style={{ gap: 12, marginTop: 12 }}>
-              {agentPlan.sections.map((section, i) => (
-                <TouchableOpacity
-                  key={section.title}
-                  style={[styles.flowBlock, { borderColor: border }]}
-                  activeOpacity={0.85}
-                  onPress={() =>
-                    goToSection(
-                      section.title === "Critical path"
-                        ? "critical"
-                        : section.title === "Deep focus block"
-                        ? "deep"
-                        : section.title === "Quick wins"
-                        ? "quick"
-                        : "catch"
-                    )
-                  }
-                >
-                  <View style={styles.flowHeader}>
-                    <View style={styles.flowHeaderLeft}>
-                      <View style={[styles.stepDot, { backgroundColor: rankColor(i) }]} />
-                      <View>
-                        <Text style={[styles.flowTitle, { color: text }]}>{section.title}</Text>
-                        <Text style={[styles.flowHint, { color: subtle }]}>{section.hint}</Text>
-                      </View>
-                    </View>
-                    <Text style={[styles.countBadge, { color: subtle }]}>{section.tasks.length} items</Text>
-                  </View>
-                  {section.tasks.map((task) => (
+            {!showSuggestedOrder ? (
+              <Text style={[styles.sectionHint, { color: subtle }]}>Tap to expand detailed ordering.</Text>
+            ) : (
+              <>
+                <Text style={[styles.sectionHint, { color: subtle }]}>Based on urgency + effort.</Text>
+                <View style={{ gap: 12, marginTop: 12 }}>
+                  {agentPlan.sections.map((section, i) => (
                     <TouchableOpacity
-                      key={task.id}
+                      key={section.title}
+                      style={[styles.flowBlock, { borderColor: border }]}
                       activeOpacity={0.85}
-                      onPress={() => handleOpenTask(task.id)}
-                      onLongPress={() => handleQuickActions(task)}
+                      onPress={() =>
+                        goToSection(
+                          section.title === "Critical path"
+                            ? "critical"
+                            : section.title === "Deep focus block"
+                            ? "deep"
+                            : section.title === "Quick wins"
+                            ? "quick"
+                            : "catch"
+                        )
+                      }
                     >
-                      <Text style={[styles.flowTask, { color: text }]}>
-                        • {task.title} ({task.reason})
-                      </Text>
+                      <View style={styles.flowHeader}>
+                        <View style={styles.flowHeaderLeft}>
+                          <View style={[styles.stepDot, { backgroundColor: rankColor(i) }]} />
+                          <View>
+                            <Text style={[styles.flowTitle, { color: text }]}>{section.title}</Text>
+                            <Text style={[styles.flowHint, { color: subtle }]}>{section.hint}</Text>
+                          </View>
+                        </View>
+                        <Text style={[styles.countBadge, { color: subtle }]}>{section.tasks.length} items</Text>
+                      </View>
+                      {section.tasks.map((task) => (
+                        <View key={task.id} style={styles.flowTaskRow}>
+                          <TouchableOpacity
+                            activeOpacity={0.85}
+                            style={{ flex: 1 }}
+                            onPress={() => handleOpenTask(task.id)}
+                          >
+                            <Text style={[styles.flowTask, { color: text }]}>
+                              • {task.title} ({task.reason})
+                            </Text>
+                          </TouchableOpacity>
+                          {renderTaskActions(task)}
+                        </View>
+                      ))}
                     </TouchableOpacity>
                   ))}
-                </TouchableOpacity>
-              ))}
-            </View>
+                </View>
+              </>
+            )}
           </View>
-        )}
+        );
+      }
 
+      return (
         <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
-          <Text style={[styles.sectionTitle, { color: text }]}>How it works</Text>
-          <Text style={[styles.sectionHint, { color: subtle }]}>
-            We rank tasks locally using due date + difficulty. Overdue and hard tasks get bumped to the
-            top, while easy items are saved as quick wins.
-          </Text>
+          <View style={styles.sectionHeader}>
+            <Text style={[styles.sectionTitle, { color: text }]}>How it works</Text>
+            <TouchableOpacity
+              onPress={() => setShowHowItWorks((prev) => !prev)}
+              activeOpacity={0.85}
+              style={styles.sectionToggleBtn}
+            >
+              <Ionicons name={showHowItWorks ? "chevron-up" : "chevron-down"} size={18} color={subtle} />
+            </TouchableOpacity>
+          </View>
+          {showHowItWorks ? (
+            <Text style={[styles.sectionHint, { color: subtle }]}>
+              We rank tasks locally using due date + difficulty. Overdue and hard tasks get bumped to the
+              top, while easy items are saved as quick wins.
+            </Text>
+          ) : (
+            <Text style={[styles.sectionHint, { color: subtle }]}>Tap to see how ranking works.</Text>
+          )}
         </View>
-      </ScrollView>
-        {/* Floating chat button */}
-        <TouchableOpacity
-          activeOpacity={0.92}
+      );
+    },
+    [
+      agentPlan.prioritized,
+      agentPlan.sections,
+      agentPlan.summary,
+      agentPlan.totalMinutes,
+      border,
+      card,
+      dark,
+      error,
+      goToFilter,
+      goToSection,
+      handleOpenTask,
+      handleStartNextBlock,
+      lastRefresh,
+      loadTasks,
+      openAddTask,
+      openChat,
+      openTaskById,
+      overdueTasks,
+      renderTaskActions,
+      scheduleTimeline,
+      showHowItWorks,
+      showSuggestedOrder,
+      stats.deep,
+      stats.dueSoon,
+      stats.open,
+      stats.overdue,
+      stats.quick,
+      subtle,
+      text,
+    ]
+  );
+
+  return (
+    <SafeAreaView edges={["left", "right"]} style={{ flex: 1, backgroundColor: background }}>
+      <View style={[styles.container, { backgroundColor: background }]}>
+        <BlurView
+          intensity={40}
+          tint={dark ? "dark" : "light"}
           style={[
-            styles.chatFab,
-            {
-              backgroundColor: dark ? "#0A84FF" : "#0A84FF",
-              shadowColor: "#0A84FF",
-              bottom: insets.bottom + 90,
-            },
+            styles.blurHeader,
+            { height: headerHeight, opacity: showHeaderBlur ? 1 : 0 },
           ]}
-          onPress={openChat}
-          accessibilityLabel="Open planner chat helper"
-        >
-          <Ionicons name="chatbubbles" size={24} color="#fff" />
-          <Text style={styles.chatFabText}>Chat</Text>
-        </TouchableOpacity>
+        />
+
+        <FlatList
+          ref={listRef}
+          data={plannerSections}
+          keyExtractor={(section) => section}
+          renderItem={renderPlannerSection}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingTop: contentTopPadding, paddingBottom: insets.bottom + 40 },
+          ]}
+          contentInsetAdjustmentBehavior="never"
+          showsVerticalScrollIndicator={false}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+          refreshing={refreshing}
+          onRefresh={() => loadTasks(true)}
+        />
 
         {chatOpen && (
           <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
@@ -1884,7 +2084,7 @@ export default function PlannerScreen() {
                                       </Text>
                                       {t.due_date ? (
                                         <Text style={[styles.chatTaskDue, { color: subtle }]}>
-                                          Due {t.due_date}
+                                          {formatDueLabel(t.due_date)}
                                         </Text>
                                       ) : null}
                                     </TouchableOpacity>
@@ -1977,7 +2177,7 @@ export default function PlannerScreen() {
                   </Text>
                 </View>
                 {task.due_date ? (
-                  <Text style={[styles.badge, { color: text, borderColor: border }]}>Due {task.due_date}</Text>
+                  <Text style={[styles.badge, { color: text, borderColor: border }]}>{formatDueLabel(task.due_date)}</Text>
                 ) : null}
               </TouchableOpacity>
             ))}
@@ -2084,8 +2284,38 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
+  flowTaskRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   emptyState: {
     fontSize: 15,
+  },
+  stateBlock: {
+    marginTop: 8,
+    gap: 10,
+  },
+  stateActionsRow: {
+    flexDirection: "row",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  stateActionBtn: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    alignSelf: "flex-start",
+  },
+  stateActionText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#0A84FF",
+  },
+  errorText: {
+    color: "#FF3B30",
+    fontSize: 14,
   },
   scheduleCard: {
     borderWidth: 1,
@@ -2102,7 +2332,23 @@ const styles = StyleSheet.create({
   scheduleRow: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     gap: 10,
+  },
+  startBlockBtn: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  startBlockText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#0A84FF",
   },
   hero: {
     padding: 18,
@@ -2184,6 +2430,9 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 8,
   },
+  sectionToggleBtn: {
+    padding: 2,
+  },
   pill: {
     fontSize: 12,
     fontWeight: "700",
@@ -2204,6 +2453,19 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginTop: 2,
   },
+  rowActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  rowActionBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   countBadge: {
     fontSize: 12,
     fontWeight: "700",
@@ -2220,25 +2482,6 @@ const styles = StyleSheet.create({
   chatPromptText: {
     fontSize: 13,
     fontWeight: "700",
-  },
-  chatFab: {
-    position: "absolute",
-    right: 18,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 30,
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 6,
-  },
-  chatFabText: {
-    color: "#fff",
-    fontWeight: "800",
-    fontSize: 14,
   },
   chatOverlay: {
     position: "absolute",
