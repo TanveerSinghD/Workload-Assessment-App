@@ -5,6 +5,7 @@ import {
   setTaskCompleted,
   updateManyTaskDueDates,
 } from "@/lib/database";
+import { emitTabBarScroll } from "@/lib/tab-bar-scroll";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useThemeColors } from "../../../hooks/use-theme-colors";
 import { Ionicons } from "@expo/vector-icons";
@@ -534,6 +535,7 @@ export default function TasksScreen() {
     const y = event.nativeEvent.contentOffset.y;
     const shouldShow = y > 8;
     setShowHeaderBlur((prev) => (prev === shouldShow ? prev : shouldShow));
+    emitTabBarScroll({ source: "tasks", y });
   }, []);
 
   const renderRowActions = useCallback(

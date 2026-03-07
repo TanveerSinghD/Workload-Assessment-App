@@ -4,6 +4,7 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useThemeColors } from "../../../hooks/use-theme-colors";
 import { getTasks } from "@/lib/database";
 import { FocusSessionSnapshot, loadFocusSessionSnapshot } from "@/lib/focus-session-storage";
+import { emitTabBarScroll } from "@/lib/tab-bar-scroll";
 import { updateAvailabilityWithFeedback } from "@/utils/availabilityFeedback";
 import { Ionicons } from "@expo/vector-icons";
 import { useScrollToTop } from "@react-navigation/native";
@@ -291,6 +292,7 @@ export default function HomeScreen() {
       const y = event.nativeEvent.contentOffset.y;
       const shouldShow = y > 8;
       setShowHeaderBlur((prev) => (prev === shouldShow ? prev : shouldShow));
+      emitTabBarScroll({ source: "home", y });
     },
     []
   );

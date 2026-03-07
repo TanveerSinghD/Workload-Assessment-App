@@ -1,6 +1,7 @@
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useThemeColors } from "../../../hooks/use-theme-colors";
 import { addTask, getTasks, updateManyTaskDueDates } from "@/lib/database";
+import { emitTabBarScroll } from "@/lib/tab-bar-scroll";
 import { updateAvailabilityWithFeedback } from "@/utils/availabilityFeedback";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useScrollToTop } from "@react-navigation/native";
@@ -944,6 +945,7 @@ export default function PlannerScreen() {
     const y = event.nativeEvent.contentOffset.y;
     const shouldShow = y > 8;
     setShowHeaderBlur((prev) => (prev === shouldShow ? prev : shouldShow));
+    emitTabBarScroll({ source: "planner", y });
   }, []);
 
   const openChat = useCallback(() => {
