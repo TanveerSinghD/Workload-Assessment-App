@@ -1816,7 +1816,7 @@ export default function PlannerScreen() {
                   style={styles.sectionToggleBtn}
                 >
                   <Ionicons
-                    name={showSuggestedOrder ? "chevron-up" : "chevron-down"}
+                    name={showSuggestedOrder ? "chevron-down" : "chevron-up"}
                     size={18}
                     color={subtle}
                   />
@@ -1889,7 +1889,7 @@ export default function PlannerScreen() {
               activeOpacity={0.85}
               style={styles.sectionToggleBtn}
             >
-              <Ionicons name={showHowItWorks ? "chevron-up" : "chevron-down"} size={18} color={subtle} />
+              <Ionicons name={showHowItWorks ? "chevron-down" : "chevron-up"} size={18} color={subtle} />
             </TouchableOpacity>
           </View>
           {showHowItWorks ? (

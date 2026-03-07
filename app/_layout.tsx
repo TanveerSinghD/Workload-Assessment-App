@@ -166,6 +166,16 @@ function RootNavigator() {
         }}
       />
 
+      {/* FOCUS SESSION */}
+      <Stack.Screen
+        name="focus-session"
+        options={{
+          headerShown: false,
+          title: "Focus Session",
+          headerBackTitle: "",
+        }}
+      />
+
       {/* MODAL */}
       <Stack.Screen
         name="modal"

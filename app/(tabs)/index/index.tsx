@@ -3,6 +3,7 @@ import { ThemedView } from "@/components/themed-view";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useThemeColors } from "../../../hooks/use-theme-colors";
 import { getTasks } from "@/lib/database";
+import { FocusSessionSnapshot, loadFocusSessionSnapshot } from "@/lib/focus-session-storage";
 import { updateAvailabilityWithFeedback } from "@/utils/availabilityFeedback";
 import { Ionicons } from "@expo/vector-icons";
 import { useScrollToTop } from "@react-navigation/native";
@@ -13,6 +14,7 @@ import {
   Alert,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -33,6 +35,19 @@ type Task = {
   created_at?: string | null;
 };
 
+const DIFFICULTY_RANK: Record<Task["difficulty"], number> = {
+  hard: 0,
+  medium: 1,
+  easy: 2,
+};
+
+function formatTimer(totalSeconds: number) {
+  const safe = Math.max(0, totalSeconds);
+  const mm = String(Math.floor(safe / 60)).padStart(2, "0");
+  const ss = String(safe % 60).padStart(2, "0");
+  return `${mm}:${ss}`;
+}
+
 export default function HomeScreen() {
   const colorScheme = useColorScheme();
   const dark = colorScheme === "dark";
@@ -44,6 +59,7 @@ export default function HomeScreen() {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [showHeaderBlur, setShowHeaderBlur] = useState(false);
+  const [focusSnapshot, setFocusSnapshot] = useState<FocusSessionSnapshot | null>(null);
   const headerHeight = insets.top + 8;
 
   // Theme colours (unified)
@@ -81,7 +97,17 @@ export default function HomeScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      loadTasks(false);
+      let active = true;
+      const load = async () => {
+        await loadTasks(false);
+        const snapshot = await loadFocusSessionSnapshot();
+        if (!active) return;
+        setFocusSnapshot(snapshot);
+      };
+      load();
+      return () => {
+        active = false;
+      };
     }, [loadTasks])
   );
 
@@ -188,6 +214,23 @@ export default function HomeScreen() {
       .slice(0, 3);
   }, [tasks, daysDiff, dateFromTask]);
 
+  const recommendedFocusTask = useMemo(() => {
+    const open = tasks.filter((t) => !t.completed);
+    if (!open.length) return null;
+
+    return [...open].sort((a, b) => {
+      const dueA = daysDiff(dateFromTask(a));
+      const dueB = daysDiff(dateFromTask(b));
+      if (dueA === null && dueB !== null) return 1;
+      if (dueA !== null && dueB === null) return -1;
+      if (dueA !== null && dueB !== null && dueA !== dueB) return dueA - dueB;
+
+      const rank = (DIFFICULTY_RANK[a.difficulty] ?? 3) - (DIFFICULTY_RANK[b.difficulty] ?? 3);
+      if (rank !== 0) return rank;
+      return a.title.localeCompare(b.title);
+    })[0];
+  }, [dateFromTask, daysDiff, tasks]);
+
   const recency = useMemo(() => {
     let recent = 0;
     let older = 0;
@@ -217,6 +260,20 @@ export default function HomeScreen() {
   const handleOpenTask = useCallback((id: number) => {
     router.push({ pathname: "/edit-task", params: { id: String(id) } });
   }, []);
+
+  const resumableFocus = useMemo(() => {
+    if (!focusSnapshot || !focusSnapshot.taskId) return null;
+    if (focusSnapshot.sessionState !== "running" && focusSnapshot.sessionState !== "paused") return null;
+    if (Date.now() - focusSnapshot.updatedAt > 1000 * 60 * 60 * 8) return null;
+
+    const task = tasks.find((item) => item.id === focusSnapshot.taskId && !item.completed);
+    if (!task) return null;
+    return {
+      task,
+      remainingSeconds: focusSnapshot.remainingSeconds,
+      sessionState: focusSnapshot.sessionState,
+    };
+  }, [focusSnapshot, tasks]);
 
   const handleToggleComplete = useCallback(
     async (task: Task) => {
@@ -264,329 +321,419 @@ export default function HomeScreen() {
     router.push({ pathname: "/tasks-filter", params: { filter } });
   }, []);
 
+  const completionPercent = stats.total === 0 ? 0 : Math.round((stats.completed / stats.total) * 100);
+
+  const focusStatus = useMemo(() => {
+    if (stats.overdue > 0) return { label: "Needs attention", color: danger };
+    if (stats.dueToday > 0) return { label: "In progress", color: warning };
+    return { label: "On track", color: success };
+  }, [danger, stats.dueToday, stats.overdue, success, warning]);
+
+  const progressChartData = useMemo(() => {
+    if (stats.total === 0) {
+      return [{ value: 1, color: dark ? "#2A2E39" : "#E7EAF1" }];
+    }
+    return [
+      { value: stats.openTasks, color: subtle },
+      { value: stats.completed, color: success },
+    ];
+  }, [dark, stats.completed, stats.openTasks, stats.total, subtle, success]);
+
+  const formatDueText = useCallback(
+    (task: Task) => {
+      const diff = daysDiff(dateFromTask(task));
+      if (diff === null) return "No due date";
+      if (diff < 0) return `Overdue ${Math.abs(Math.round(diff))}d`;
+      if (diff === 0) return "Due today";
+      if (diff === 1) return "Due tomorrow";
+      return `Due in ${Math.round(diff)}d`;
+    },
+    [dateFromTask, daysDiff]
+  );
+
   return (
     <SafeAreaView edges={["left", "right"]} style={{ flex: 1, backgroundColor: background }}>
-    <ThemedView style={[styles.container, { backgroundColor: background }]}>
-      {/* Status bar blur overlay for nicer scroll */}
-      <BlurView
-        intensity={40}
-        tint={dark ? "dark" : "light"}
-        style={[
-          styles.blurHeader,
-          { height: headerHeight, opacity: showHeaderBlur ? 1 : 0 },
-        ]}
-        pointerEvents="none"
-      />
+      <ThemedView style={[styles.container, { backgroundColor: background }]}>
+        <BlurView
+          intensity={40}
+          tint={dark ? "dark" : "light"}
+          style={[styles.blurHeader, { height: headerHeight, opacity: showHeaderBlur ? 1 : 0 }]}
+          pointerEvents="none"
+        />
 
-      <ScrollView
-        ref={scrollRef}
-        showsVerticalScrollIndicator={false}
-        contentInsetAdjustmentBehavior="never"
-        contentContainerStyle={[
-          styles.scrollContent,
-          { paddingTop: headerHeight, paddingBottom: insets.bottom + 120 },
-        ]}
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => loadTasks(true)}
-            tintColor={dark ? "#FFF" : "#000"}
-          />
-        }
-      >
-
-        {/* TODAY’S OVERVIEW */}
-        <View
-          style={[
-            styles.card,
-            {
-              backgroundColor: card,
-              borderColor: border,
-            },
+        <ScrollView
+          ref={scrollRef}
+          showsVerticalScrollIndicator={false}
+          contentInsetAdjustmentBehavior="never"
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingTop: headerHeight, paddingBottom: insets.bottom + 120 },
           ]}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => loadTasks(true)}
+              tintColor={dark ? "#FFF" : "#000"}
+            />
+          }
         >
-          <ThemedText type="subtitle" style={[styles.cardTitle, { color: text }]}>
-            Today
-          </ThemedText>
+          <View style={[styles.heroCard, { backgroundColor: card, borderColor: border }]}>
+            <View style={styles.heroHeader}>
+              <View style={{ flex: 1 }}>
+                <ThemedText type="subtitle" style={[styles.heroTitle, { color: text }]}>
+                  Today focus
+                </ThemedText>
+                <Text style={[styles.heroSubtitle, { color: subtle }]}>
+                  {tasks.length === 0
+                    ? "Build momentum by adding your first task."
+                    : `You have ${stats.openTasks} open task${stats.openTasks === 1 ? "" : "s"}.`}
+                </Text>
+              </View>
+              <View style={[styles.focusStatusPill, { backgroundColor: `${focusStatus.color}20`, borderColor: `${focusStatus.color}55` }]}>
+                <Text style={[styles.focusStatusText, { color: focusStatus.color }]}>{focusStatus.label}</Text>
+              </View>
+            </View>
 
-          {error ? (
-            <ThemedText style={{ color: "#FF3B30" }}>{error}</ThemedText>
-          ) : tasks.length === 0 ? (
-            <ThemedText style={{ color: subtle }}>
-              No tasks added yet.
-            </ThemedText>
-          ) : (
-            <View style={styles.statChipRow}>
-              {[
-                {
-                  label: "Today",
-                  value: stats.dueToday,
-                  color: "#0A84FF",
-                  icon: "sunny",
-                  filter: "today" as const,
-                },
-                {
-                  label: "This week",
-                  value: stats.dueThisWeek,
-                  color: "#30B0C7",
-                  icon: "calendar-outline",
-                  filter: "week" as const,
-                },
-                {
-                  label: "Overdue",
-                  value: stats.overdue,
-                  color: danger,
-                  icon: "warning-outline",
-                  filter: "overdue" as const,
-                },
-              ].map((item) => (
-                <TouchableOpacity
-                  key={item.label}
-                  onPress={() => goToFilter(item.filter)}
-                  activeOpacity={0.9}
-                  style={[
-                    styles.statChip,
-                    {
-                      backgroundColor: surfaceElevated,
-                      borderColor: dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)",
-                    },
+            {error ? (
+              <View style={[styles.emptyStateBox, { borderColor: border, backgroundColor: surfaceElevated }]}>
+                <Text style={[styles.errorText, { color: danger }]}>{error}</Text>
+                <Pressable
+                  onPress={() => loadTasks(true)}
+                  accessibilityLabel="Retry loading tasks"
+                  style={({ pressed }) => [
+                    styles.ghostBtn,
+                    { borderColor: border, backgroundColor: card },
+                    pressed && styles.pressableDown,
                   ]}
                 >
-                  <View style={styles.statChipTop}>
-                    <Ionicons name={item.icon as any} size={16} color={item.color} />
-                    <Text style={[styles.statChipLabel, { color: subtle }]}>{item.label}</Text>
-                  </View>
-                  <Text style={[styles.statChipValue, { color: text }]}>{item.value}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
-        </View>
-
-        {/* HEALTH PANEL */}
-        <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
-          <ThemedText type="subtitle" style={[styles.cardTitle, { color: text }]}>
-            Progress
-          </ThemedText>
-
-          {/* Health Rows */}
-          <View style={{ marginBottom: 16, gap: 12 }}>
-            <View style={styles.healthRow}>
-              <Text style={[styles.healthLabel, { color: subtle }]}>Tasks</Text>
-              <Text style={[styles.healthValue, { color: text }]}>
-                {stats.total} total tasks
-              </Text>
-            </View>
-
-            <View style={styles.healthRow}>
-              <Text style={[styles.healthLabel, { color: subtle }]}>Progress</Text>
-              <Text style={[styles.healthValue, { color: text }]}>
-                {stats.total === 0
-                  ? "0% complete"
-                  : `${Math.round((stats.completed / stats.total) * 100)}% complete`}
-              </Text>
-            </View>
-          </View>
-
-          {/* Pie Chart */}
-          <View style={styles.pieContainer}>
-            <PieChart
-              donut
-              radius={75}
-              innerRadius={48}
-              textColor={text}
-              data={[
-                {
-                  value: stats.openTasks,
-                  color: subtle,
-                },
-                {
-                  value: stats.completed,
-                  color: success,
-                },
-                {
-                  value: 0,
-                  color: colors.accentBlue,
-                },
-              ]}
-            />
-          </View>
-
-          {/* Chart Legend */}
-          <View style={styles.legendRow}>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: subtle }]} />
-              <Text style={[styles.legendText, { color: text }]}>Open</Text>
-            </View>
-
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: success }]} />
-              <Text style={[styles.legendText, { color: text }]}>Complete</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* OVERDUE + FORECAST */}
-        <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
-          <ThemedText type="subtitle" style={[styles.cardTitle, { color: text }]}>
-            Overdue and upcoming
-          </ThemedText>
-          <View style={styles.statRow}>
-            <TouchableOpacity
-              style={[styles.statBox, { borderColor: border, backgroundColor: surfaceElevated }]}
-              activeOpacity={0.85}
-              onPress={() => goToFilter("overdue")}
-            >
-              <Text style={[styles.statLabel, { color: subtle }]}>Overdue</Text>
-              <Text style={[styles.statValue, { color: text }]}>{stats.overdue}</Text>
-              {worstOverdue ? (
-                <Text style={[styles.statHint, { color: subtle }]} numberOfLines={1}>
-                  Oldest: {worstOverdue.title}
+                  <Text style={[styles.ghostBtnText, { color: text }]}>Retry</Text>
+                </Pressable>
+              </View>
+            ) : tasks.length === 0 ? (
+              <View style={[styles.emptyStateBox, { borderColor: border, backgroundColor: surfaceElevated }]}>
+                <Text style={[styles.emptyStateTitle, { color: text }]}>No tasks yet</Text>
+                <Text style={[styles.emptyStateSub, { color: subtle }]}>
+                  Add your first task to unlock smart planning and quick actions.
                 </Text>
-              ) : (
-                <Text style={[styles.statHint, { color: subtle }]}>Clear</Text>
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.statBox, { borderColor: border, backgroundColor: surfaceElevated }]}
-              activeOpacity={0.85}
-              onPress={() => goToFilter("today")}
-            >
-              <Text style={[styles.statLabel, { color: subtle }]}>Today</Text>
-              <Text style={[styles.statValue, { color: text }]}>{loadForecast.todayCount}</Text>
-              <Text style={[styles.statHint, { color: subtle }]}>Next 3 days: {loadForecast.next3}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.statBox, { borderColor: border, backgroundColor: surfaceElevated }]}
-              activeOpacity={0.85}
-              onPress={() => goToFilter("next7")}
-            >
-              <Text style={[styles.statLabel, { color: subtle }]}>Week</Text>
-              <Text style={[styles.statValue, { color: text }]}>{loadForecast.next7}</Text>
-              <Text style={[styles.statHint, { color: subtle }]}>Due this week</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* DIFFICULTY MIX */}
-        <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
-          <ThemedText type="subtitle" style={[styles.cardTitle, { color: text }]}>
-            Difficulty mix
-          </ThemedText>
-          <Text style={[styles.statHint, { color: subtle }]}>
-            {difficultyMix.easy} easy · {difficultyMix.medium} medium · {difficultyMix.hard} hard
-          </Text>
-          <View style={[styles.barBackground, { backgroundColor: surfaceElevated }]}>
-            <View
-              style={[
-                styles.barFill,
-                { width: `${difficultyMix.percents.easy}%`, backgroundColor: success },
-              ]}
-            />
-            <View
-              style={[
-                styles.barFill,
-                { width: `${difficultyMix.percents.medium}%`, backgroundColor: warning },
-              ]}
-            />
-            <View
-              style={[
-                styles.barFill,
-                { width: `${difficultyMix.percents.hard}%`, backgroundColor: danger },
-              ]}
-            />
-          </View>
-        </View>
-
-        {/* QUICK WINS */}
-        <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
-          <ThemedText type="subtitle" style={[styles.cardTitle, { color: text }]}>
-            Quick wins
-          </ThemedText>
-          {quickWins.length === 0 ? (
-            <Text style={[styles.statHint, { color: subtle }]}>No easy tasks queued.</Text>
-          ) : (
-            quickWins.map((task) => (
-              <TouchableOpacity
-                key={task.id}
-                style={[styles.assignmentCard, { backgroundColor: card, borderColor: border }]}
-                activeOpacity={0.85}
-                onPress={() => handleOpenTask(task.id)}
-              >
-                <View style={styles.assignmentRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: text, fontSize: 16, fontWeight: "700" }}>{task.title}</Text>
-                    <Text style={{ color: subtle }}>
-                      {task.due_date ? `Due ${task.due_date}` : "No due date"}
-                    </Text>
-                  </View>
-                  <View style={styles.taskActions}>
-                    <TouchableOpacity
-                      style={[styles.taskActionBtn, { borderColor: border, backgroundColor: dark ? "#17304C" : "#EAF2FF" }]}
-                      onPress={(event) => {
-                        event.stopPropagation();
-                        handleToggleComplete(task);
-                      }}
-                      accessibilityLabel={`Mark ${task.title} complete`}
-                    >
-                      <Ionicons name="checkmark" size={14} color={dark ? "#8FC0FF" : "#0A84FF"} />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.taskActionBtn, { borderColor: border, backgroundColor: dark ? "#282D37" : "#F2F4F8" }]}
-                      onPress={(event) => {
-                        event.stopPropagation();
-                        handleQuickActions(task);
-                      }}
-                      accessibilityLabel={`More actions for ${task.title}`}
-                    >
-                      <Ionicons name="ellipsis-horizontal" size={14} color={subtle} />
-                    </TouchableOpacity>
-                  </View>
+                <View style={styles.heroActions}>
+                  <Pressable
+                    onPress={() => router.push("/add-assignment")}
+                    accessibilityLabel="Add first task"
+                    style={({ pressed }) => [
+                      styles.primaryBtn,
+                      { backgroundColor: colors.accentBlue },
+                      pressed && styles.pressableDown,
+                    ]}
+                  >
+                    <Ionicons name="add" size={16} color="#fff" />
+                    <Text style={styles.primaryBtnText}>Add first task</Text>
+                  </Pressable>
                 </View>
-              </TouchableOpacity>
-            ))
-          )}
-        </View>
+              </View>
+            ) : (
+              <>
+                {resumableFocus ? (
+                  <Pressable
+                    onPress={() => router.push({ pathname: "/focus-session", params: { id: String(resumableFocus.task.id) } })}
+                    accessibilityLabel="Resume active focus session"
+                    style={({ pressed }) => [
+                      styles.resumeChip,
+                      { borderColor: border, backgroundColor: surfaceElevated },
+                      pressed && styles.pressableDown,
+                    ]}
+                  >
+                    <Ionicons name={resumableFocus.sessionState === "running" ? "play-circle" : "pause-circle"} size={14} color={colors.accentBlue} />
+                    <Text style={[styles.resumeChipText, { color: text }]} numberOfLines={1}>
+                      Resume {formatTimer(resumableFocus.remainingSeconds)} - {resumableFocus.task.title}
+                    </Text>
+                  </Pressable>
+                ) : null}
 
-        {/* RECENCY & AGING */}
-        <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
-          <ThemedText type="subtitle" style={[styles.cardTitle, { color: text }]}>
-            Recent and oldest
-          </ThemedText>
-          <View style={styles.statRow}>
-            <TouchableOpacity
-              style={[styles.statBox, { borderColor: border, backgroundColor: surfaceElevated }]}
-              activeOpacity={0.85}
-              onPress={() => router.push({ pathname: "/tasks-filter", params: { filter: "recent" } })}
-            >
-              <Text style={[styles.statLabel, { color: subtle }]}>Added last 48h</Text>
-              <Text style={[styles.statValue, { color: text }]}>{recency.recent}</Text>
-              <Text style={[styles.statHint, { color: subtle }]}>Older tasks: {recency.older}</Text>
-            </TouchableOpacity>
-            <View
-              style={[
-                styles.statBox,
-                { flex: 2, borderColor: border, backgroundColor: surfaceElevated },
-              ]}
-            >
-              <Text style={[styles.statLabel, { color: subtle }]}>Oldest open items</Text>
+                <View style={styles.focusGrid}>
+                  {[
+                    {
+                      label: "Overdue",
+                      value: stats.overdue,
+                      hint: worstOverdue ? "Needs recovery" : "All clear",
+                      icon: "warning-outline",
+                      color: danger,
+                      filter: "overdue" as const,
+                    },
+                    {
+                      label: "Due today",
+                      value: loadForecast.todayCount,
+                      hint: loadForecast.todayCount > 0 ? "Prioritize now" : "No deadlines",
+                      icon: "sunny-outline",
+                      color: "#0A84FF",
+                      filter: "today" as const,
+                    },
+                    {
+                      label: "Next 7 days",
+                      value: loadForecast.next7,
+                      hint: `${loadForecast.next3} due in 3 days`,
+                      icon: "calendar-outline",
+                      color: "#34C759",
+                      filter: "next7" as const,
+                    },
+                  ].map((item) => (
+                    <Pressable
+                      key={item.label}
+                      onPress={() => goToFilter(item.filter)}
+                      accessibilityLabel={`Open ${item.label} tasks`}
+                      style={({ pressed }) => [
+                        styles.focusMetric,
+                        {
+                          borderColor: dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)",
+                          backgroundColor: surfaceElevated,
+                        },
+                        pressed && styles.pressableDown,
+                      ]}
+                    >
+                      <View style={styles.focusMetricHead}>
+                        <Ionicons name={item.icon as any} size={15} color={item.color} />
+                        <Text style={[styles.focusMetricLabel, { color: subtle }]}>{item.label}</Text>
+                      </View>
+                      <Text style={[styles.focusMetricValue, { color: text }]}>{item.value}</Text>
+                      <Text style={[styles.focusMetricHint, { color: subtle }]} numberOfLines={1}>
+                        {item.hint}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                <View style={styles.heroActions}>
+                  <Pressable
+                    onPress={() =>
+                      router.push(
+                        recommendedFocusTask
+                          ? { pathname: "/focus-session", params: { id: String(recommendedFocusTask.id) } }
+                          : "/focus-session"
+                      )
+                    }
+                    accessibilityLabel="Start focus session"
+                    style={({ pressed }) => [
+                      styles.primaryBtn,
+                      { backgroundColor: colors.accentBlue },
+                      pressed && styles.pressableDown,
+                    ]}
+                  >
+                    <Ionicons name="play-forward" size={15} color="#fff" />
+                    <Text style={styles.primaryBtnText}>Start focus</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => router.push("/add-assignment")}
+                    accessibilityLabel="Add a task"
+                    style={({ pressed }) => [
+                      styles.ghostBtn,
+                      { borderColor: border, backgroundColor: surfaceElevated },
+                      pressed && styles.pressableDown,
+                    ]}
+                  >
+                    <Ionicons name="add" size={15} color={text} />
+                    <Text style={[styles.ghostBtnText, { color: text }]}>Add task</Text>
+                  </Pressable>
+                </View>
+
+                {worstOverdue ? (
+                  <Text style={[styles.heroFootnote, { color: subtle }]} numberOfLines={1}>
+                    Oldest overdue: {worstOverdue.title}
+                  </Text>
+                ) : null}
+              </>
+            )}
+          </View>
+
+          <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
+            <View style={styles.sectionHead}>
+              <ThemedText type="subtitle" style={[styles.cardTitle, { color: text }]}>
+                Progress
+              </ThemedText>
+              <Text style={[styles.sectionHeadSub, { color: subtle }]}>
+                {stats.completed} complete / {stats.openTasks} open
+              </Text>
+            </View>
+
+            <View style={styles.progressBody}>
+              <View style={styles.donutWrap}>
+                <PieChart donut radius={68} innerRadius={45} data={progressChartData} />
+                <View style={styles.donutCenter}>
+                  <Text style={[styles.donutPercent, { color: text }]}>{completionPercent}%</Text>
+                  <Text style={[styles.donutLabel, { color: subtle }]}>complete</Text>
+                </View>
+              </View>
+
+              <View style={styles.progressMeta}>
+                <View style={styles.progressRow}>
+                  <Text style={[styles.progressLabel, { color: subtle }]}>Total tasks</Text>
+                  <Text style={[styles.progressValue, { color: text }]}>{stats.total}</Text>
+                </View>
+                <View style={styles.progressRow}>
+                  <Text style={[styles.progressLabel, { color: subtle }]}>Due this week</Text>
+                  <Text style={[styles.progressValue, { color: text }]}>{stats.dueThisWeek}</Text>
+                </View>
+                <View style={styles.progressRow}>
+                  <Text style={[styles.progressLabel, { color: subtle }]}>Added last 48h</Text>
+                  <Text style={[styles.progressValue, { color: text }]}>{recency.recent}</Text>
+                </View>
+              </View>
+            </View>
+
+            <Text style={[styles.mixSummary, { color: subtle }]}>
+              {difficultyMix.easy} easy · {difficultyMix.medium} medium · {difficultyMix.hard} hard
+            </Text>
+            <View style={[styles.barBackground, { backgroundColor: surfaceElevated }]}>
+              <View style={[styles.barFill, { width: `${difficultyMix.percents.easy}%`, backgroundColor: success }]} />
+              <View style={[styles.barFill, { width: `${difficultyMix.percents.medium}%`, backgroundColor: warning }]} />
+              <View style={[styles.barFill, { width: `${difficultyMix.percents.hard}%`, backgroundColor: danger }]} />
+            </View>
+            <View style={styles.mixLegendRow}>
+              <Text style={[styles.mixLegendText, { color: success }]}>Easy {difficultyMix.percents.easy}%</Text>
+              <Text style={[styles.mixLegendText, { color: warning }]}>Medium {difficultyMix.percents.medium}%</Text>
+              <Text style={[styles.mixLegendText, { color: danger }]}>Hard {difficultyMix.percents.hard}%</Text>
+            </View>
+          </View>
+
+          <View style={[styles.card, styles.primaryActionCard, { backgroundColor: card, borderColor: border }]}>
+            <View style={styles.sectionHeadRow}>
+              <ThemedText type="subtitle" style={[styles.cardTitle, { color: text }]}>
+                Quick wins
+              </ThemedText>
+              <Pressable
+                onPress={() => router.push("/(tabs)/tasks/tasks")}
+                accessibilityLabel="View all tasks"
+                style={({ pressed }) => [styles.inlineLink, pressed && styles.pressableDown]}
+              >
+                <Text style={[styles.inlineLinkText, { color: colors.accentBlue }]}>View all</Text>
+                <Ionicons name="chevron-forward" size={14} color={colors.accentBlue} />
+              </Pressable>
+            </View>
+
+            {quickWins.length === 0 ? (
+              <View style={[styles.emptyStateBox, { borderColor: border, backgroundColor: surfaceElevated }]}>
+                <Text style={[styles.emptyStateSub, { color: subtle }]}>
+                  No easy tasks queued. Tackle a medium task next.
+                </Text>
+                <Pressable
+                  onPress={() => router.push("/(tabs)/tasks/tasks")}
+                  accessibilityLabel="Open tasks list"
+                  style={({ pressed }) => [
+                    styles.ghostBtn,
+                    { borderColor: border, backgroundColor: card, alignSelf: "flex-start" },
+                    pressed && styles.pressableDown,
+                  ]}
+                >
+                  <Text style={[styles.ghostBtnText, { color: text }]}>Open tasks</Text>
+                </Pressable>
+              </View>
+            ) : (
+              quickWins.map((task) => (
+                <Pressable
+                  key={task.id}
+                  accessibilityLabel={`Open quick win task ${task.title}`}
+                  onPress={() => handleOpenTask(task.id)}
+                  style={({ pressed }) => [
+                    styles.assignmentCard,
+                    { backgroundColor: surfaceElevated, borderColor: border },
+                    pressed && styles.pressableDown,
+                  ]}
+                >
+                  <View style={styles.assignmentRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.assignmentTitle, { color: text }]} numberOfLines={1}>
+                        {task.title}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.assignmentMeta,
+                          { color: formatDueText(task).startsWith("Overdue") ? danger : subtle },
+                        ]}
+                      >
+                        {formatDueText(task)}
+                      </Text>
+                    </View>
+                    <View style={styles.taskActions}>
+                      <TouchableOpacity
+                        style={[styles.taskActionBtn, { borderColor: border, backgroundColor: dark ? "#17304C" : "#EAF2FF" }]}
+                        onPress={(event) => {
+                          event.stopPropagation();
+                          handleToggleComplete(task);
+                        }}
+                        accessibilityLabel={`Mark ${task.title} complete`}
+                      >
+                        <Ionicons name="checkmark" size={14} color={dark ? "#8FC0FF" : "#0A84FF"} />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.taskActionBtn, { borderColor: border, backgroundColor: dark ? "#282D37" : "#F2F4F8" }]}
+                        onPress={(event) => {
+                          event.stopPropagation();
+                          handleQuickActions(task);
+                        }}
+                        accessibilityLabel={`More actions for ${task.title}`}
+                      >
+                        <Ionicons name="ellipsis-horizontal" size={14} color={subtle} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </Pressable>
+              ))
+            )}
+          </View>
+
+          <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
+            <View style={styles.sectionHead}>
+              <ThemedText type="subtitle" style={[styles.cardTitle, { color: text }]}>
+                Insights
+              </ThemedText>
+              <Text style={[styles.sectionHeadSub, { color: subtle }]}>Upcoming pressure and aging tasks</Text>
+            </View>
+
+            <View style={styles.insightGrid}>
+              <Pressable
+                onPress={() => goToFilter("next3")}
+                accessibilityLabel="Open tasks due in next 3 days"
+                style={({ pressed }) => [
+                  styles.insightTile,
+                  { borderColor: border, backgroundColor: surfaceElevated },
+                  pressed && styles.pressableDown,
+                ]}
+              >
+                <Text style={[styles.insightLabel, { color: subtle }]}>Due in 3 days</Text>
+                <Text style={[styles.insightValue, { color: text }]}>{loadForecast.next3}</Text>
+                <Text style={[styles.insightHint, { color: subtle }]}>Next 7 days: {loadForecast.next7}</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => router.push({ pathname: "/tasks-filter", params: { filter: "recent" } })}
+                accessibilityLabel="Open recently added tasks"
+                style={({ pressed }) => [
+                  styles.insightTile,
+                  { borderColor: border, backgroundColor: surfaceElevated },
+                  pressed && styles.pressableDown,
+                ]}
+              >
+                <Text style={[styles.insightLabel, { color: subtle }]}>Added in 48h</Text>
+                <Text style={[styles.insightValue, { color: text }]}>{recency.recent}</Text>
+                <Text style={[styles.insightHint, { color: subtle }]}>Older tasks: {recency.older}</Text>
+              </Pressable>
+            </View>
+
+            <View style={[styles.oldestBox, { borderColor: border, backgroundColor: surfaceElevated }]}>
+              <Text style={[styles.insightLabel, { color: subtle }]}>Oldest open items</Text>
               {aging.length === 0 ? (
-                <Text style={[styles.statHint, { color: subtle }]}>No open tasks</Text>
+                <Text style={[styles.insightHint, { color: subtle }]}>No open tasks</Text>
               ) : (
-                aging.map((t) => (
-                  <Text key={t.id} style={{ color: text }} numberOfLines={1}>
-                    • {t.title} ({t.age}d)
+                aging.map((task) => (
+                  <Text key={task.id} style={[styles.oldestItem, { color: text }]} numberOfLines={1}>
+                    • {task.title} ({task.age}d)
                   </Text>
                 ))
               )}
             </View>
           </View>
-        </View>
-
-      </ScrollView>
-    </ThemedView>
+        </ScrollView>
+      </ThemedView>
     </SafeAreaView>
   );
 }
@@ -594,10 +741,10 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingHorizontal: 15,
+    paddingHorizontal: 16,
   },
   scrollContent: {
-    paddingBottom: 1, // small cushion for the tab bar without leaving a large block
+    gap: 14,
   },
   blurHeader: {
     position: "absolute",
@@ -607,129 +754,256 @@ const styles = StyleSheet.create({
     height: 80,
     zIndex: 20,
   },
-
-  card: {
-    padding: 18,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginBottom: 18,
+  pressableDown: {
+    opacity: 0.88,
+    transform: [{ scale: 0.99 }],
   },
-
-  cardTitle: {
-    marginBottom: 8,
+  heroCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 14,
+    gap: 12,
+  },
+  heroHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  heroTitle: {
+    fontSize: 19,
+    fontWeight: "800",
+  },
+  heroSubtitle: {
+    fontSize: 13,
+    marginTop: 3,
+  },
+  focusStatusPill: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  focusStatusText: {
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  focusGrid: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  focusMetric: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    minHeight: 94,
+  },
+  focusMetricHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  focusMetricLabel: {
+    fontSize: 12,
     fontWeight: "700",
   },
-
-  healthRow: {
+  focusMetricValue: {
+    fontSize: 24,
+    fontWeight: "900",
+    marginTop: 4,
+  },
+  focusMetricHint: {
+    fontSize: 12,
+    marginTop: 3,
+  },
+  heroActions: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  resumeChip: {
+    borderWidth: 1,
+    borderRadius: 10,
+    minHeight: 36,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  resumeChipText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  primaryBtn: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 6,
+  },
+  primaryBtnText: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#fff",
+  },
+  ghostBtn: {
+    minHeight: 42,
+    borderRadius: 11,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 6,
+  },
+  ghostBtnText: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  heroFootnote: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  emptyStateBox: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    gap: 8,
+  },
+  errorText: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  emptyStateTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  emptyStateSub: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  card: {
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 14,
+    gap: 10,
+  },
+  primaryActionCard: {
+    borderWidth: 1.2,
+  },
+  sectionHead: {
+    gap: 2,
+  },
+  sectionHeadRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    marginBottom: 0,
+  },
+  sectionHeadSub: {
+    fontSize: 12,
+  },
+  progressBody: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  donutWrap: {
+    width: 142,
+    height: 142,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  donutCenter: {
+    position: "absolute",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  donutPercent: {
+    fontSize: 23,
+    fontWeight: "900",
+    lineHeight: 26,
+  },
+  donutLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  progressMeta: {
+    flex: 1,
+    gap: 9,
+  },
+  progressRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-  },
-  healthLabel: {
-    fontSize: 15,
-  },
-  healthValue: {
-    fontSize: 15,
-    fontWeight: "600",
-  },
-
-  pieContainer: {
-    justifyContent: "center",
     alignItems: "center",
-    marginVertical: 12,
+    gap: 8,
   },
-
-  legendRow: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    marginTop: 10,
-  },
-  legendItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  legendDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-  },
-  legendText: {
-    fontSize: 14,
-  },
-  statChipRow: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  statChip: {
-    flex: 1,
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    gap: 6,
-    alignItems: "center",
-  },
-  statChipTop: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    justifyContent: "center",
-  },
-  statChipLabel: {
+  progressLabel: {
     fontSize: 13,
-    fontWeight: "600",
-    textAlign: "center",
   },
-  statChipValue: {
-    fontSize: 22,
-    fontWeight: "800",
-    textAlign: "center",
-  },
-  statRow: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  statBox: {
-    flex: 1,
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "transparent",
-  },
-  statLabel: {
-    fontSize: 13,
-    marginBottom: 4,
-  },
-  statValue: {
-    fontSize: 20,
+  progressValue: {
+    fontSize: 15,
     fontWeight: "800",
   },
-  statHint: {
+  mixSummary: {
     fontSize: 13,
-    marginTop: 4,
+    marginTop: 2,
   },
   barBackground: {
     width: "100%",
     height: 12,
-    borderRadius: 8,
+    borderRadius: 999,
     overflow: "hidden",
     flexDirection: "row",
-    marginTop: 10,
+    marginTop: 2,
   },
   barFill: {
     height: "100%",
   },
-
+  mixLegendRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 2,
+  },
+  mixLegendText: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  inlineLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  inlineLinkText: {
+    fontSize: 13,
+    fontWeight: "800",
+  },
   assignmentCard: {
-    padding: 16,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
-    marginBottom: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
   },
   assignmentRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+  },
+  assignmentTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  assignmentMeta: {
+    fontSize: 12,
+    marginTop: 2,
   },
   taskActions: {
     flexDirection: "row",
@@ -737,11 +1011,47 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   taskActionBtn: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
+  },
+  insightGrid: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  insightTile: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    minHeight: 90,
+  },
+  insightLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  insightValue: {
+    fontSize: 24,
+    fontWeight: "900",
+    marginTop: 4,
+  },
+  insightHint: {
+    fontSize: 12,
+    marginTop: 4,
+  },
+  oldestBox: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    gap: 6,
+  },
+  oldestItem: {
+    fontSize: 13,
+    fontWeight: "600",
   },
 });
