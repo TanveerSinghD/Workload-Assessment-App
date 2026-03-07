@@ -1803,24 +1803,24 @@ export default function PlannerScreen() {
 
       if (item === "suggested") {
         return (
-          <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
+          <TouchableOpacity
+            style={[styles.card, { backgroundColor: card, borderColor: border }]}
+            activeOpacity={0.96}
+            onPress={() => setShowSuggestedOrder((prev) => !prev)}
+          >
             <View style={styles.sectionHeader}>
               <Text style={[styles.sectionTitle, { color: text }]}>Suggested order</Text>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <View style={styles.suggestedHeaderRight}>
                 <Text style={[styles.pill, { color: subtle, borderColor: border }]}>
                   {stats.quick} quick wins · {stats.deep} deep work
                 </Text>
-                <TouchableOpacity
-                  onPress={() => setShowSuggestedOrder((prev) => !prev)}
-                  activeOpacity={0.85}
-                  style={styles.sectionToggleBtn}
-                >
+                <View style={styles.sectionToggleBtn}>
                   <Ionicons
                     name={showSuggestedOrder ? "chevron-down" : "chevron-up"}
                     size={18}
                     color={subtle}
                   />
-                </TouchableOpacity>
+                </View>
               </View>
             </View>
 
@@ -1876,21 +1876,21 @@ export default function PlannerScreen() {
                 </View>
               </>
             )}
-          </View>
+          </TouchableOpacity>
         );
       }
 
       return (
-        <View style={[styles.card, { backgroundColor: card, borderColor: border }]}>
+        <TouchableOpacity
+          style={[styles.card, { backgroundColor: card, borderColor: border }]}
+          activeOpacity={0.96}
+          onPress={() => setShowHowItWorks((prev) => !prev)}
+        >
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: text }]}>How it works</Text>
-            <TouchableOpacity
-              onPress={() => setShowHowItWorks((prev) => !prev)}
-              activeOpacity={0.85}
-              style={styles.sectionToggleBtn}
-            >
+            <View style={styles.sectionToggleBtn}>
               <Ionicons name={showHowItWorks ? "chevron-down" : "chevron-up"} size={18} color={subtle} />
-            </TouchableOpacity>
+            </View>
           </View>
           {showHowItWorks ? (
             <Text style={[styles.sectionHint, { color: subtle }]}>
@@ -1900,7 +1900,7 @@ export default function PlannerScreen() {
           ) : (
             <Text style={[styles.sectionHint, { color: subtle }]}>Tap to see how ranking works.</Text>
           )}
-        </View>
+        </TouchableOpacity>
       );
     },
     [
@@ -1955,7 +1955,7 @@ export default function PlannerScreen() {
           renderItem={renderPlannerSection}
           contentContainerStyle={[
             styles.scrollContent,
-            { paddingTop: contentTopPadding, paddingBottom: insets.bottom + 40 },
+            { paddingTop: contentTopPadding, paddingBottom: insets.bottom + 132 },
           ]}
           contentInsetAdjustmentBehavior="never"
           showsVerticalScrollIndicator={false}
@@ -2430,8 +2430,18 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 8,
   },
+  suggestedHeaderRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingRight: 10,
+  },
   sectionToggleBtn: {
-    padding: 2,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
   },
   pill: {
     fontSize: 12,
