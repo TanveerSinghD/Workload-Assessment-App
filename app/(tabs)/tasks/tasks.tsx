@@ -1,24 +1,33 @@
-import { deleteTask, duplicateTask, getTasks } from "@/lib/database";
+import {
+  deleteTask,
+  duplicateTask,
+  getTasks,
+  setTaskCompleted,
+  updateManyTaskDueDates,
+} from "@/lib/database";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useThemeColors } from "../../../hooks/use-theme-colors";
-import { updateAvailabilityWithFeedback } from "@/utils/availabilityFeedback";
 import { Ionicons } from "@expo/vector-icons";
 import { useScrollToTop } from "@react-navigation/native";
 import { BlurView } from "expo-blur";
-import { Link, router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Pressable,
   RefreshControl,
   ScrollView,
+  SectionList,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+import { Swipeable } from "react-native-gesture-handler";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Task = {
@@ -26,9 +35,26 @@ type Task = {
   title: string;
   notes?: string | null;
   difficulty: "easy" | "medium" | "hard";
-  due_date: string;
+  due_date?: string | null;
   completed?: number;
+  created_at?: string | null;
 };
+
+type FocusFilter = "all" | "easy" | "medium" | "hard";
+type SortOption = "due" | "hard" | "recent";
+
+type DisplayTask = Task & {
+  daysUntil: number | null;
+};
+
+type TaskSection = {
+  key: string;
+  title: string;
+  data: DisplayTask[];
+  allData: DisplayTask[];
+};
+
+const PREVIEW_LIMIT = 4;
 
 function dateFromTask(task: Task) {
   if (!task.due_date) return null;
@@ -36,18 +62,50 @@ function dateFromTask(task: Task) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function createdFromTask(task: Task) {
+  if (!task.created_at) return null;
+  const date = new Date(task.created_at);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 function daysDiff(date: Date | null, today: Date) {
   if (!date) return null;
   const diff = date.getTime() - today.getTime();
-  return diff / (1000 * 60 * 60 * 24);
+  return Math.round(diff / (1000 * 60 * 60 * 24));
 }
 
-// Helper: short description
+function toISODateLocal(date: Date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function addDaysISO(iso: string, days: number) {
+  const d = new Date(`${iso}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  return toISODateLocal(d);
+}
+
+function formatDueLabel(task: DisplayTask) {
+  if (task.daysUntil === null) return "No due date";
+  if (task.daysUntil < 0) return `Overdue ${Math.abs(task.daysUntil)}d`;
+  if (task.daysUntil === 0) return "Due today";
+  if (task.daysUntil === 1) return "Due tomorrow";
+  return `Due in ${task.daysUntil}d`;
+}
+
 function getShortDescription(notes?: string | null) {
   if (!notes) return "";
   const words = notes.trim().split(/\s+/);
-  return words.slice(0, 3).join(" ") + "...";
+  return words.slice(0, 8).join(" ") + (words.length > 8 ? "..." : "");
 }
+
+const DIFFICULTY_RANK: Record<Task["difficulty"], number> = {
+  hard: 0,
+  medium: 1,
+  easy: 2,
+};
 
 export default function TasksScreen() {
   const scheme = useColorScheme();
@@ -60,18 +118,31 @@ export default function TasksScreen() {
   const border = colors.borderSubtle;
   const text = colors.textPrimary;
   const subtle = colors.textMuted;
-  const highlight = colors.surfaceElevated;
   const accent = colors.accentBlue;
-  const success = colors.successGreen;
 
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [filter, setFilter] = useState<"all" | "today" | "week" | "overdue">("all");
-  const scrollRef = useRef<ScrollView>(null);
-  useScrollToTop(scrollRef);
   const [refreshing, setRefreshing] = useState(false);
   const [showHeaderBlur, setShowHeaderBlur] = useState(false);
+  const [focusFilter, setFocusFilter] = useState<FocusFilter>("all");
+  const [sortBy, setSortBy] = useState<SortOption>("due");
+  const [search, setSearch] = useState("");
+  const [batchMode, setBatchMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [taskListModal, setTaskListModal] = useState<{ title: string; tasks: DisplayTask[] } | null>(null);
+
   const insets = useSafeAreaInsets();
   const headerHeight = insets.top + 8;
+
+  const listRef = useRef<SectionList<DisplayTask, TaskSection>>(null);
+  useScrollToTop(listRef);
+
+  const swipeRefs = useRef<Record<number, Swipeable | null>>({});
+
+  const today = useMemo(() => {
+    const base = new Date();
+    base.setHours(0, 0, 0, 0);
+    return base;
+  }, []);
 
   const loadTasks = useCallback(async (showSpinner = false) => {
     try {
@@ -92,103 +163,303 @@ export default function TasksScreen() {
     }, [loadTasks])
   );
 
-  // Apply incoming filter params whenever they change (e.g., from quick actions).
   useEffect(() => {
-    const allowed = ["all", "today", "week", "overdue"] as const;
-    if (initialFilterParam && (allowed as readonly string[]).includes(initialFilterParam)) {
-      setFilter(initialFilterParam as typeof allowed[number]);
-    }
+    const f = (initialFilterParam ?? "").toLowerCase();
+    if (f === "easy" || f === "medium" || f === "hard") setFocusFilter(f);
+    else setFocusFilter("all");
   }, [initialFilterParam]);
 
-  const today = useMemo(() => {
-    const base = new Date();
-    base.setHours(0, 0, 0, 0);
-    return base;
+  const openTasks = useMemo(() => tasks.filter((task) => !task.completed), [tasks]);
+
+  const focusCounts = useMemo(() => {
+    let easy = 0;
+    let medium = 0;
+    let hard = 0;
+
+    openTasks.forEach((task) => {
+      if (task.difficulty === "easy") easy += 1;
+      else if (task.difficulty === "medium") medium += 1;
+      else hard += 1;
+    });
+
+    return {
+      open: openTasks.length,
+      easy,
+      medium,
+      hard,
+    };
+  }, [openTasks]);
+
+  const visibleTasks = useMemo(() => {
+    const query = search.trim().toLowerCase();
+
+    const withMeta: DisplayTask[] = openTasks
+      .map((task) => ({
+        ...task,
+        daysUntil: daysDiff(dateFromTask(task), today),
+      }))
+      .filter((task) => {
+        if (focusFilter === "easy" || focusFilter === "medium" || focusFilter === "hard") {
+          if (task.difficulty !== focusFilter) return false;
+        }
+
+        if (!query) return true;
+        const haystack = `${task.title} ${task.notes ?? ""}`.toLowerCase();
+        return haystack.includes(query);
+      });
+
+    const sorted = [...withMeta].sort((a, b) => {
+      if (sortBy === "hard") {
+        const rank = (DIFFICULTY_RANK[a.difficulty] ?? 3) - (DIFFICULTY_RANK[b.difficulty] ?? 3);
+        if (rank !== 0) return rank;
+      }
+
+      if (sortBy === "recent") {
+        const createdA = createdFromTask(a)?.getTime() ?? 0;
+        const createdB = createdFromTask(b)?.getTime() ?? 0;
+        if (createdA !== createdB) return createdB - createdA;
+      }
+
+      const aDue = a.daysUntil;
+      const bDue = b.daysUntil;
+      if (aDue === null && bDue === null) return 0;
+      if (aDue === null) return 1;
+      if (bDue === null) return -1;
+      if (aDue !== bDue) return aDue - bDue;
+
+      const rank = (DIFFICULTY_RANK[a.difficulty] ?? 3) - (DIFFICULTY_RANK[b.difficulty] ?? 3);
+      if (rank !== 0) return rank;
+      return a.title.localeCompare(b.title);
+    });
+
+    return sorted;
+  }, [focusFilter, openTasks, search, sortBy, today]);
+
+  const sections = useMemo(() => {
+    const overdue = visibleTasks.filter((task) => task.daysUntil !== null && task.daysUntil < 0);
+    const dueToday = visibleTasks.filter((task) => task.daysUntil === 0);
+    const upcoming = visibleTasks.filter((task) => task.daysUntil === null || task.daysUntil > 0);
+
+    return [
+      { key: "overdue", title: "Overdue", allData: overdue },
+      { key: "today", title: "Due today", allData: dueToday },
+      { key: "upcoming", title: "Upcoming", allData: upcoming },
+    ]
+      .filter((section) => section.allData.length > 0)
+      .map((section) => ({ ...section, data: section.allData.slice(0, PREVIEW_LIMIT) })) as TaskSection[];
+  }, [visibleTasks]);
+
+  const selectedTasks = useMemo(
+    () => openTasks.filter((task) => selectedIds.has(task.id)),
+    [openTasks, selectedIds]
+  );
+
+  const selectedCount = selectedIds.size;
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set());
   }, []);
 
-  const filteredTasks = useMemo(() => {
-    return tasks.filter((task) => {
-      if (task.completed) return false;
-
-      const diff = daysDiff(dateFromTask(task), today);
-      if (filter === "all") return true;
-      if (diff === null) return false;
-
-      if (filter === "today") return diff === 0;
-      if (filter === "week") return diff >= 0 && diff <= 7;
-      if (filter === "overdue") return diff < 0;
-
-      return true;
+  const toggleBatchMode = useCallback(() => {
+    setBatchMode((prev) => {
+      if (prev) clearSelection();
+      return !prev;
     });
-  }, [filter, tasks, today]);
+  }, [clearSelection]);
 
-  const grouped = {
-    easy: filteredTasks.filter((t) => t.difficulty === "easy"),
-    medium: filteredTasks.filter((t) => t.difficulty === "medium"),
-    hard: filteredTasks.filter((t) => t.difficulty === "hard"),
-  };
-  const openDifficultyView = (level: "easy" | "medium" | "hard") => {
-    router.push({ pathname: "/tasks-difficulty", params: { level } });
-  };
+  const toggleSelected = useCallback((id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
-  const handleMarkDone = async (task: Task) => {
-    const nextState = task.completed ? false : true;
-    const updated = await updateAvailabilityWithFeedback(task.id, nextState);
-    if (updated) {
+  const handleOpenTask = useCallback(
+    (task: Task) => {
+      if (batchMode) {
+        toggleSelected(task.id);
+        return;
+      }
+      router.push({ pathname: "/edit-task", params: { id: String(task.id) } });
+    },
+    [batchMode, toggleSelected]
+  );
+
+  const handleTaskLongPress = useCallback((task: Task) => {
+    setBatchMode(true);
+    setSelectedIds(new Set([task.id]));
+  }, []);
+
+  const handleMarkDone = useCallback(
+    async (task: Task) => {
+      const nextState = !task.completed;
+      await setTaskCompleted(task.id, nextState);
       await loadTasks();
-    }
-  };
+      if (batchMode) {
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          next.delete(task.id);
+          return next;
+        });
+      }
+    },
+    [batchMode, loadTasks]
+  );
 
-  const handleDuplicate = async (task: Task) => {
-    try {
-      await duplicateTask(task.id);
+  const handleDuplicate = useCallback(
+    async (task: Task) => {
+      try {
+        await duplicateTask(task.id);
+        await loadTasks();
+      } catch (error) {
+        console.error("Failed to duplicate task", error);
+        Alert.alert("Duplicate failed", "Please try duplicating again.");
+      }
+    },
+    [loadTasks]
+  );
+
+  const handleDelete = useCallback(
+    (task: Task) => {
+      Alert.alert(
+        "Delete task?",
+        `This will remove "${task.title}".`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Delete",
+            style: "destructive",
+            onPress: async () => {
+              try {
+                await deleteTask(task.id);
+                await loadTasks();
+              } catch (error) {
+                console.error("Failed to delete task", error);
+                Alert.alert("Delete failed", "Please retry in a moment.");
+              }
+            },
+          },
+        ],
+        { userInterfaceStyle: dark ? "dark" : "light" }
+      );
+    },
+    [dark, loadTasks]
+  );
+
+  const openQuickActions = useCallback(
+    (task: Task) => {
+      Alert.alert(
+        "Quick actions",
+        task.title,
+        [
+          {
+            text: task.completed ? "Mark as not done" : "Mark done",
+            onPress: () => handleMarkDone(task),
+          },
+          { text: "Duplicate", onPress: () => handleDuplicate(task) },
+          { text: "Delete", style: "destructive", onPress: () => handleDelete(task) },
+          { text: "Cancel", style: "cancel" },
+        ],
+        { userInterfaceStyle: dark ? "dark" : "light" }
+      );
+    },
+    [dark, handleDelete, handleDuplicate, handleMarkDone]
+  );
+
+  const handleBatchComplete = useCallback(async () => {
+    if (selectedTasks.length === 0) return;
+    await Promise.all(selectedTasks.map((task) => setTaskCompleted(task.id, true)));
+    clearSelection();
+    setBatchMode(false);
+    await loadTasks();
+  }, [clearSelection, loadTasks, selectedTasks]);
+
+  const runBatchReschedule = useCallback(
+    async (mode: "plus1" | "plus7" | "clear") => {
+      if (selectedTasks.length === 0) return;
+
+      const todayISO = toISODateLocal(today);
+      const updates = selectedTasks.map((task) => {
+        if (mode === "clear") {
+          return { id: task.id, due_date: null as string | null };
+        }
+        const baseISO = task.due_date ?? todayISO;
+        const moved = addDaysISO(baseISO, mode === "plus1" ? 1 : 7);
+        return { id: task.id, due_date: moved };
+      });
+
+      await updateManyTaskDueDates(updates);
+      clearSelection();
+      setBatchMode(false);
       await loadTasks();
-    } catch (error) {
-      console.error("Failed to duplicate task", error);
-      Alert.alert("Duplicate failed", "Please sign in again and try duplicating.");
-    }
-  };
+    },
+    [clearSelection, loadTasks, selectedTasks, today]
+  );
 
-  const handleDelete = (task: Task) => {
+  const handleBatchReschedule = useCallback(() => {
     Alert.alert(
-      "Delete task?",
-      `This will remove "${task.title}".`,
+      "Reschedule selected",
+      `Update ${selectedCount} selected task${selectedCount === 1 ? "" : "s"}.`,
+      [
+        { text: "+1 day", onPress: () => runBatchReschedule("plus1") },
+        { text: "+7 days", onPress: () => runBatchReschedule("plus7") },
+        { text: "Clear due date", onPress: () => runBatchReschedule("clear") },
+        { text: "Cancel", style: "cancel" },
+      ],
+      { userInterfaceStyle: dark ? "dark" : "light" }
+    );
+  }, [dark, runBatchReschedule, selectedCount]);
+
+  const handleBatchDelete = useCallback(() => {
+    if (selectedTasks.length === 0) return;
+    Alert.alert(
+      "Delete selected tasks?",
+      `This will delete ${selectedTasks.length} task${selectedTasks.length === 1 ? "" : "s"}.`,
       [
         { text: "Cancel", style: "cancel" },
         {
           text: "Delete",
           style: "destructive",
           onPress: async () => {
-            try {
-              await deleteTask(task.id);
-              await loadTasks();
-            } catch (error) {
-              console.error("Failed to delete task", error);
-              Alert.alert("Delete failed", "Please sign in again and retry.");
-            }
+            await Promise.all(selectedTasks.map((task) => deleteTask(task.id)));
+            clearSelection();
+            setBatchMode(false);
+            await loadTasks();
           },
         },
       ],
       { userInterfaceStyle: dark ? "dark" : "light" }
     );
-  };
+  }, [clearSelection, dark, loadTasks, selectedTasks]);
 
-  const openQuickActions = (task: Task) => {
-    Alert.alert(
-      "Quick actions",
-      task.title,
-      [
-        {
-          text: task.completed ? "Mark as not done" : "Mark done",
-          onPress: () => handleMarkDone(task),
-        },
-        { text: "Duplicate", onPress: () => handleDuplicate(task) },
-        { text: "Delete", style: "destructive", onPress: () => handleDelete(task) },
-        { text: "Cancel", style: "cancel" },
-      ],
-      { userInterfaceStyle: dark ? "dark" : "light" }
-    );
-  };
+  const closeSwipe = useCallback((id: number) => {
+    swipeRefs.current[id]?.close();
+  }, []);
+
+  const closeOtherSwipes = useCallback((keepId: number) => {
+    Object.entries(swipeRefs.current).forEach(([id, ref]) => {
+      if (Number(id) !== keepId) ref?.close();
+    });
+  }, []);
+
+  const handleSwipeOpen = useCallback(
+    (task: DisplayTask, direction: "left" | "right") => {
+      if (direction === "left") openQuickActions(task);
+      else handleMarkDone(task);
+      closeSwipe(task.id);
+    },
+    [closeSwipe, handleMarkDone, openQuickActions]
+  );
+
+  const clearFilters = useCallback(() => {
+    setFocusFilter("all");
+    setSearch("");
+    setSortBy("due");
+    setBatchMode(false);
+    clearSelection();
+  }, [clearSelection]);
 
   const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const y = event.nativeEvent.contentOffset.y;
@@ -196,91 +467,280 @@ export default function TasksScreen() {
     setShowHeaderBlur((prev) => (prev === shouldShow ? prev : shouldShow));
   }, []);
 
-  const renderTasks = (tasks: Task[]) => (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={styles.horizontalList}
-    >
-      {tasks.map((task) => {
-        const completed = !!task.completed;
+  const renderRowActions = useCallback(
+    (task: DisplayTask) => (
+      <View style={styles.taskActions}>
+        <TouchableOpacity
+          style={[
+            styles.taskActionBtn,
+            { borderColor: border, backgroundColor: dark ? "#17304C" : "#EAF2FF" },
+          ]}
+          onPress={(event) => {
+            event.stopPropagation();
+            handleMarkDone(task);
+          }}
+          accessibilityLabel={`Mark ${task.title} done`}
+        >
+          <Ionicons name="checkmark" size={14} color={dark ? "#8FC0FF" : "#0A84FF"} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.taskActionBtn,
+            { borderColor: border, backgroundColor: dark ? "#282D37" : "#F2F4F8" },
+          ]}
+          onPress={(event) => {
+            event.stopPropagation();
+            openQuickActions(task);
+          }}
+          accessibilityLabel={`More actions for ${task.title}`}
+        >
+          <Ionicons name="ellipsis-horizontal" size={14} color={subtle} />
+        </TouchableOpacity>
+      </View>
+    ),
+    [border, dark, handleMarkDone, openQuickActions, subtle]
+  );
 
-        return (
-          <View
-            key={task.id}
-            style={[
-              styles.taskContainer,
-              { backgroundColor: highlight, borderColor: border }
-            ]}
-          >
-            <Link
-              href={{ pathname: "/edit-task", params: { id: task.id } }}
-              asChild
-            >
-              <TouchableOpacity
-                delayLongPress={350}
-                onLongPress={() => openQuickActions(task)}
+  const renderTaskCard = useCallback(
+    (task: DisplayTask) => {
+      const selected = selectedIds.has(task.id);
+      return (
+        <Pressable
+          onPress={() => handleOpenTask(task)}
+          onLongPress={() => handleTaskLongPress(task)}
+          style={[
+            styles.taskCard,
+            {
+              borderColor: selected ? accent : border,
+              backgroundColor: card,
+            },
+          ]}
+        >
+          <View style={styles.taskHeaderRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.taskTitle, { color: text }]} numberOfLines={2}>
+                {task.title}
+              </Text>
+              <Text style={[styles.taskSub, { color: subtle }]}>{formatDueLabel(task)}</Text>
+            </View>
+
+            <View style={styles.headerRight}>
+              <View
                 style={[
-                  styles.taskCard,
-                  { backgroundColor: card, borderColor: border, opacity: completed ? 0.65 : 1 }
+                  styles.difficultyPill,
+                  {
+                    borderColor: border,
+                    backgroundColor:
+                      task.difficulty === "hard"
+                        ? dark
+                          ? "#4A2222"
+                          : "#FFECEC"
+                        : task.difficulty === "medium"
+                        ? dark
+                          ? "#4A4022"
+                          : "#FFF8E6"
+                        : dark
+                        ? "#1F3A2B"
+                        : "#E9FFF1",
+                  },
                 ]}
               >
-                {/* TITLE */}
-                <Text
-                  style={[
-                    styles.taskTitle,
-                    {
-                      color: text,
-                      textDecorationLine: completed ? "line-through" : "none"
-                    },
-                  ]}
-                >
-                  {task.title}
+                <Text style={[styles.difficultyText, { color: text }]}>
+                  {task.difficulty.charAt(0).toUpperCase() + task.difficulty.slice(1)}
                 </Text>
+              </View>
 
-                {/* DUE DATE */}
-                <Text
+              {batchMode ? (
+                <TouchableOpacity
                   style={[
-                    styles.taskSub,
-                    {
-                      color: subtle,
-                      marginTop: 8,
-                      paddingBottom: 8,
-                      borderBottomWidth: 1,
-                      borderBottomColor: border,
-                      marginBottom: 8,
-                      fontSize: 16
-                    },
+                    styles.selectionBtn,
+                    { borderColor: selected ? accent : border, backgroundColor: selected ? `${accent}22` : "transparent" },
                   ]}
+                  onPress={(event) => {
+                    event.stopPropagation();
+                    toggleSelected(task.id);
+                  }}
                 >
-                  Due {task.due_date}
-                </Text>
-
-                {/* NOTES */}
-                {task.notes ? (
-                  <Text style={[styles.taskSubNotes, { color: subtle }]}>
-                    • {getShortDescription(task.notes)}
-                  </Text>
-                ) : null}
-
-                {/* STATUS */}
-                {completed ? (
-                  <View style={[styles.statusPill, { backgroundColor: `${success}1A`, borderColor: `${success}33` }]}>
-                    <Ionicons name="checkmark-done" size={14} color={success} />
-                    <Text style={[styles.statusText, { color: success }]}>Done</Text>
-                  </View>
-                ) : null}
-              </TouchableOpacity>
-            </Link>
+                  <Ionicons
+                    name={selected ? "checkmark-circle" : "ellipse-outline"}
+                    size={18}
+                    color={selected ? accent : subtle}
+                  />
+                </TouchableOpacity>
+              ) : (
+                renderRowActions(task)
+              )}
+            </View>
           </View>
-        );
-      })}
-    </ScrollView>
+
+          {task.notes ? (
+            <Text style={[styles.taskNotes, { color: subtle }]} numberOfLines={2}>
+              {getShortDescription(task.notes)}
+            </Text>
+          ) : null}
+        </Pressable>
+      );
+    },
+    [accent, batchMode, border, card, dark, handleOpenTask, handleTaskLongPress, renderRowActions, selectedIds, subtle, text, toggleSelected]
+  );
+
+  const renderItem = useCallback(
+    ({ item }: { item: DisplayTask }) => {
+      if (batchMode) return renderTaskCard(item);
+
+      return (
+        <Swipeable
+          ref={(ref) => {
+            swipeRefs.current[item.id] = ref;
+          }}
+          friction={2}
+          leftThreshold={42}
+          rightThreshold={42}
+          renderLeftActions={() => (
+            <View style={styles.swipeLeftWrap}>
+              <View style={[styles.swipeAction, { backgroundColor: "#1FAD4D" }]}>
+                <Ionicons name="checkmark" size={18} color="#fff" />
+                <Text style={styles.swipeText}>Complete</Text>
+              </View>
+            </View>
+          )}
+          renderRightActions={() => (
+            <View style={styles.swipeRightWrap}>
+              <View style={[styles.swipeAction, { backgroundColor: "#0A84FF" }]}>
+                <Ionicons name="ellipsis-horizontal" size={18} color="#fff" />
+                <Text style={styles.swipeText}>More</Text>
+              </View>
+            </View>
+          )}
+          onSwipeableWillOpen={() => closeOtherSwipes(item.id)}
+          onSwipeableOpen={(direction) => handleSwipeOpen(item, direction as "left" | "right")}
+        >
+          {renderTaskCard(item)}
+        </Swipeable>
+      );
+    },
+    [batchMode, closeOtherSwipes, handleSwipeOpen, renderTaskCard]
+  );
+
+  const renderSectionHeader = useCallback(
+    ({ section }: { section: TaskSection }) => (
+      <View style={[styles.sectionHeader, { backgroundColor: background }]}> 
+        <Text style={[styles.sectionTitle, { color: text }]}>{section.title}</Text>
+        <Text style={[styles.sectionCount, { color: subtle }]}>{section.allData.length}</Text>
+      </View>
+    ),
+    [background, subtle, text]
+  );
+
+  const renderSectionFooter = useCallback(
+    ({ section }: { section: TaskSection }) => {
+      if (section.allData.length <= section.data.length) return null;
+      return (
+        <TouchableOpacity
+          style={styles.moreBtn}
+          onPress={() => setTaskListModal({ title: section.title, tasks: section.allData })}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.moreBtnText}>More...</Text>
+        </TouchableOpacity>
+      );
+    },
+    []
+  );
+
+  const listHeader = (
+    <View style={styles.listHeaderWrap}>
+      <View style={[styles.focusStrip, { paddingTop: headerHeight }]}>
+        {([
+          { key: "all", label: "Open", count: focusCounts.open },
+          { key: "hard", label: "Hard", count: focusCounts.hard },
+          { key: "medium", label: "Medium", count: focusCounts.medium },
+          { key: "easy", label: "Easy", count: focusCounts.easy },
+        ] as const).map((chip) => (
+          <TouchableOpacity
+            key={chip.key}
+            onPress={() => setFocusFilter(chip.key)}
+            style={[
+              styles.focusChip,
+              {
+                borderColor: focusFilter === chip.key ? accent : border,
+                backgroundColor: focusFilter === chip.key ? `${accent}22` : card,
+              },
+            ]}
+          >
+            <Text style={[styles.focusLabel, { color: text }]}>{chip.label}</Text>
+            <Text style={[styles.focusCount, { color: subtle }]}>{chip.count}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      <View style={[styles.searchWrap, { borderColor: border, backgroundColor: card }]}> 
+        <Ionicons name="search" size={18} color={subtle} />
+        <TextInput
+          placeholder="Search tasks..."
+          placeholderTextColor={subtle}
+          value={search}
+          onChangeText={setSearch}
+          style={[styles.searchInput, { color: text }]}
+          returnKeyType="search"
+        />
+        {search ? (
+          <TouchableOpacity onPress={() => setSearch("")}>
+            <Ionicons name="close-circle" size={18} color={subtle} />
+          </TouchableOpacity>
+        ) : null}
+      </View>
+
+      <View style={styles.sortRow}>
+        {([
+          { key: "due", label: "Due soonest" },
+          { key: "hard", label: "Hardest first" },
+          { key: "recent", label: "Recently added" },
+        ] as const).map((item) => (
+          <TouchableOpacity
+            key={item.key}
+            onPress={() => setSortBy(item.key)}
+            style={[
+              styles.sortChip,
+              {
+                borderColor: sortBy === item.key ? accent : border,
+                backgroundColor: sortBy === item.key ? `${accent}22` : "transparent",
+              },
+            ]}
+          >
+            <Text style={[styles.sortText, { color: text }]}>{item.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      <View style={styles.toolbarRow}>
+        <TouchableOpacity
+          style={[styles.completedButton, { borderColor: border }]}
+          activeOpacity={0.85}
+          onPress={() => router.push("/completed-tasks")}
+        >
+          <Text style={[styles.completedButtonText, { color: text }]}>View completed tasks</Text>
+          <Ionicons name="chevron-forward" size={18} color={subtle} />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.selectButton, { borderColor: border, backgroundColor: batchMode ? `${accent}22` : "transparent" }]}
+          onPress={toggleBatchMode}
+        >
+          <Ionicons name={batchMode ? "close" : "checkmark-done-outline"} size={16} color={batchMode ? accent : text} />
+          <Text style={[styles.selectButtonText, { color: batchMode ? accent : text }]}> 
+            {batchMode ? "Cancel" : "Select"}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      <Text style={[styles.swipeHint, { color: subtle }]}>Swipe right to complete, left for more actions.</Text>
+    </View>
   );
 
   return (
     <SafeAreaView edges={["left", "right"]} style={{ flex: 1, backgroundColor: background }}>
-      <View style={[styles.container, { backgroundColor: background }]}>
+      <View style={[styles.container, { backgroundColor: background }]}> 
         <BlurView
           intensity={40}
           tint={dark ? "dark" : "light"}
@@ -291,14 +751,72 @@ export default function TasksScreen() {
           pointerEvents="none"
         />
 
-        <ScrollView
-          ref={scrollRef}
-          showsVerticalScrollIndicator={false}
+        {batchMode ? (
+          <View style={[styles.batchBar, { borderColor: border, backgroundColor: card, marginTop: headerHeight }]}> 
+            <Text style={[styles.batchTitle, { color: text }]}>{selectedCount} selected</Text>
+            <View style={styles.batchActionsRow}>
+              <TouchableOpacity
+                style={[styles.batchActionBtn, { borderColor: border }]}
+                onPress={handleBatchComplete}
+                disabled={selectedCount === 0}
+              >
+                <Text style={[styles.batchActionText, { color: selectedCount === 0 ? subtle : "#1FAD4D" }]}>Complete</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.batchActionBtn, { borderColor: border }]}
+                onPress={handleBatchReschedule}
+                disabled={selectedCount === 0}
+              >
+                <Text style={[styles.batchActionText, { color: selectedCount === 0 ? subtle : accent }]}>Reschedule</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.batchActionBtn, { borderColor: border }]}
+                onPress={handleBatchDelete}
+                disabled={selectedCount === 0}
+              >
+                <Text style={[styles.batchActionText, { color: selectedCount === 0 ? subtle : "#FF3B30" }]}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
+
+        <SectionList
+          ref={listRef}
+          sections={sections}
+          keyExtractor={(item) => String(item.id)}
+          renderItem={renderItem}
+          renderSectionHeader={renderSectionHeader}
+          renderSectionFooter={renderSectionFooter}
+          stickySectionHeadersEnabled
+          ListHeaderComponent={listHeader}
+          ListEmptyComponent={
+            <View style={[styles.emptyCard, { borderColor: border, backgroundColor: card }]}> 
+              <Text style={[styles.emptyTitle, { color: text }]}>No matching tasks</Text>
+              <Text style={[styles.emptySub, { color: subtle }]}>Try clearing filters or add a new task.</Text>
+              <View style={styles.emptyActionsRow}>
+                <TouchableOpacity
+                  style={[styles.emptyBtn, { borderColor: border, backgroundColor: dark ? "#17304C" : "#EAF2FF" }]}
+                  onPress={() => router.push("/add-assignment")}
+                >
+                  <Text style={[styles.emptyBtnText, { color: accent }]}>Add task</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.emptyBtn, { borderColor: border, backgroundColor: dark ? "#282D37" : "#F2F4F8" }]}
+                  onPress={clearFilters}
+                >
+                  <Text style={[styles.emptyBtnText, { color: text }]}>Clear filters</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          }
           contentInsetAdjustmentBehavior="never"
-          contentContainerStyle={[
-            styles.scrollContent,
-            { paddingTop: headerHeight, paddingBottom: insets.bottom + 120 },
-          ]}
+          contentContainerStyle={{
+            paddingHorizontal: 16,
+            paddingBottom: insets.bottom + 120,
+            gap: 10,
+          }}
+          ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+          showsVerticalScrollIndicator={false}
           onScroll={handleScroll}
           scrollEventThrottle={16}
           refreshControl={
@@ -308,107 +826,56 @@ export default function TasksScreen() {
               tintColor={dark ? "#FFF" : "#000"}
             />
           }
-        >
-        <View style={styles.filtersRow}>
-          {(["all", "today", "week", "overdue"] as const).map((f) => (
-            <TouchableOpacity
-              key={f}
-              onPress={() => setFilter(f)}
-              style={[
-                styles.filterChip,
-                {
-                  borderColor: filter === f ? accent : border,
-                  backgroundColor: filter === f ? `${accent}22` : "transparent",
-                },
-              ]}
-            >
-              <Text style={{ color: text, fontWeight: "600" }}>
-                {f === "all"
-                  ? "All"
-                  : f === "today"
-                  ? "Today"
-                  : f === "week"
-                  ? "This Week"
-                  : "Overdue"}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-        <TouchableOpacity
-          style={[styles.completedButton, { borderColor: border }]}
-          activeOpacity={0.85}
-          onPress={() => router.push("/completed-tasks")}
-        >
-          <Text style={[styles.completedButtonText, { color: text }]}>View completed tasks</Text>
-          <Ionicons name="chevron-forward" size={18} color={subtle} />
-        </TouchableOpacity>
+          initialNumToRender={12}
+          maxToRenderPerBatch={12}
+          windowSize={8}
+          removeClippedSubviews
+        />
 
-        {/* EASY */}
-        <Pressable
-          onPress={() => openDifficultyView("easy")}
-          style={({ pressed }) => [
-            styles.sectionBox,
-            { borderColor: border, backgroundColor: card, opacity: pressed ? 0.94 : 1 },
-          ]}
+        <Modal
+          visible={taskListModal !== null}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={() => setTaskListModal(null)}
         >
-          <View style={styles.sectionHeader}>
-            <Text style={[styles.sectionTitle, { color: text }]}>
-              🟢 Easy ({grouped.easy.length})
-            </Text>
-            <TouchableOpacity onPress={() => openDifficultyView("easy")} activeOpacity={0.8}>
-              <Ionicons name="chevron-forward" size={22} color={subtle} />
-            </TouchableOpacity>
-          </View>
-          {grouped.easy.length === 0 ? (
-            <Text style={[styles.empty, { color: subtle }]}>No easy tasks.</Text>
-          ) : renderTasks(grouped.easy)}
-        </Pressable>
+          <SafeAreaView style={{ flex: 1, backgroundColor: background }}>
+            <View style={[styles.modalHeader, { borderColor: border }]}>
+              <Text style={[styles.modalTitle, { color: text }]}>{taskListModal?.title}</Text>
+              <TouchableOpacity onPress={() => setTaskListModal(null)} style={styles.modalClose}>
+                <Ionicons name="close" size={22} color={text} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={styles.modalContent} showsVerticalScrollIndicator={false}>
+              {taskListModal?.tasks.map((task) => (
+                <TouchableOpacity
+                  key={task.id}
+                  style={[styles.taskCard, { borderColor: border, backgroundColor: card }]}
+                  activeOpacity={0.85}
+                  onPress={() => {
+                    setTaskListModal(null);
+                    router.push({ pathname: "/edit-task", params: { id: String(task.id) } });
+                  }}
+                >
+                  <View style={styles.taskHeaderRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.taskTitle, { color: text }]} numberOfLines={2}>
+                        {task.title}
+                      </Text>
+                      <Text style={[styles.taskSub, { color: subtle }]}>{formatDueLabel(task)}</Text>
+                    </View>
+                    {renderRowActions(task)}
+                  </View>
+                  {task.notes ? (
+                    <Text style={[styles.taskNotes, { color: subtle }]} numberOfLines={2}>
+                      {getShortDescription(task.notes)}
+                    </Text>
+                  ) : null}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </SafeAreaView>
+        </Modal>
 
-        {/* MEDIUM */}
-        <Pressable
-          onPress={() => openDifficultyView("medium")}
-          style={({ pressed }) => [
-            styles.sectionBox,
-            { borderColor: border, backgroundColor: card, opacity: pressed ? 0.94 : 1 },
-          ]}
-        >
-          <View style={styles.sectionHeader}>
-            <Text style={[styles.sectionTitle, { color: text }]}>
-              🟡 Medium ({grouped.medium.length})
-            </Text>
-            <TouchableOpacity onPress={() => openDifficultyView("medium")} activeOpacity={0.8}>
-              <Ionicons name="chevron-forward" size={22} color={subtle} />
-            </TouchableOpacity>
-          </View>
-          {grouped.medium.length === 0 ? (
-            <Text style={[styles.empty, { color: subtle }]}>No medium tasks.</Text>
-          ) : renderTasks(grouped.medium)}
-        </Pressable>
-
-        {/* HARD */}
-        <Pressable
-          onPress={() => openDifficultyView("hard")}
-          style={({ pressed }) => [
-            styles.sectionBox,
-            { borderColor: border, backgroundColor: card, opacity: pressed ? 0.94 : 1 },
-          ]}
-        >
-          <View style={styles.sectionHeader}>
-            <Text style={[styles.sectionTitle, { color: text }]}>
-              🔴 Hard ({grouped.hard.length})
-            </Text>
-            <TouchableOpacity onPress={() => openDifficultyView("hard")} activeOpacity={0.8}>
-              <Ionicons name="chevron-forward" size={22} color={subtle} />
-            </TouchableOpacity>
-          </View>
-          {grouped.hard.length === 0 ? (
-            <Text style={[styles.empty, { color: subtle }]}>No hard tasks.</Text>
-          ) : renderTasks(grouped.hard)}
-        </Pressable>
-
-        </ScrollView>
-
-        {/* FAB START: Quick add task */}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Add new task"
@@ -425,16 +892,14 @@ export default function TasksScreen() {
         >
           <Ionicons name="add" size={30} color="#fff" />
         </Pressable>
-        {/* FAB END */}
       </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingHorizontal: 20 },
-  scrollContent: {
-
+  container: {
+    flex: 1,
   },
   blurHeader: {
     position: "absolute",
@@ -443,117 +908,286 @@ const styles = StyleSheet.create({
     right: 0,
     zIndex: 20,
   },
-
-  filtersRow: {
+  focusStrip: {
+    paddingBottom: 10,
     flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 16,
+    gap: 8,
+    zIndex: 10,
+    alignItems: "center",
   },
-
-  filterChip: {
+  focusChip: {
     flex: 1,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  focusLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  focusCount: {
+    fontSize: 14,
+    fontWeight: "800",
+    marginTop: 2,
+  },
+  batchBar: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 10,
+    gap: 8,
+  },
+  batchTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  batchActionsRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  batchActionBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 8,
+    alignItems: "center",
+  },
+  batchActionText: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  listHeaderWrap: {
+    gap: 10,
+    paddingBottom: 8,
+  },
+  searchWrap: {
+    borderWidth: 1,
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
     paddingVertical: 10,
-    marginRight: 8,
-    borderRadius: 8,
-    borderWidth: 2,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    paddingVertical: 0,
+  },
+  sortRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  sortChip: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 9,
+    alignItems: "center",
+  },
+  sortText: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  toolbarRow: {
+    flexDirection: "row",
+    gap: 8,
     alignItems: "center",
   },
   completedButton: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     borderWidth: 1,
     borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    marginBottom: 16,
+    paddingVertical: 11,
+    paddingHorizontal: 12,
   },
   completedButtonText: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "700",
   },
-
-  sectionBox: {
+  selectButton: {
     borderWidth: 1,
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 32,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
-
-  sectionTitle: {
-    fontSize: 22,
+  selectButtonText: {
+    fontSize: 13,
     fontWeight: "700",
-    marginBottom: 16,
   },
-
+  swipeHint: {
+    fontSize: 12,
+    marginTop: -2,
+  },
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 8,
+    paddingTop: 10,
+    paddingBottom: 6,
   },
-
-  empty: { fontSize: 16, marginTop: 8 },
-
-  /* Bigger grey box */
-  taskContainer: {
-    borderWidth: 1,
-    borderRadius: 18,
-    padding: 12,
-    marginRight: 20,
-    minWidth: 150,
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "800",
   },
-
-  horizontalList: {
-    flexDirection: "row",
-    paddingHorizontal: 4,
-  },
-
-  /* Bigger white card */
-  taskCard: {
-    borderWidth: 1,
-    borderRadius: 18,
-    padding: 20,
-    width: 200,
-    gap: 6,
-  },
-
-  /* Bigger title text */
-  taskTitle: {
-    fontSize: 20,
+  sectionCount: {
+    fontSize: 13,
     fontWeight: "700",
+  },
+  moreBtn: {
+    alignSelf: "flex-start",
+    paddingVertical: 6,
+    paddingHorizontal: 4,
     marginBottom: 4,
   },
-
-  /* Due date */
+  moreBtnText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#0A84FF",
+  },
+  taskCard: {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 12,
+    gap: 8,
+  },
+  taskHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  taskTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+  },
   taskSub: {
-    fontSize: 16,
-    marginTop: 4,
+    fontSize: 13,
+    marginTop: 2,
   },
-
-  /* Notes */
-  taskSubNotes: {
-    fontSize: 16,
-    marginTop: 4,
+  taskNotes: {
+    fontSize: 13,
+    lineHeight: 18,
   },
-
-  statusPill: {
+  headerRight: {
     flexDirection: "row",
     alignItems: "center",
-    alignSelf: "flex-start",
-    backgroundColor: "rgba(46, 204, 113, 0.12)",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 12,
-    marginTop: 8,
+    gap: 8,
+  },
+  difficultyPill: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  difficultyText: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  taskActions: {
+    flexDirection: "row",
+    alignItems: "center",
     gap: 6,
   },
-
-  statusText: {
-    fontWeight: "700",
-    fontSize: 13,
+  taskActionBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
-
+  selectionBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  swipeLeftWrap: {
+    justifyContent: "center",
+    alignItems: "flex-start",
+    marginBottom: 10,
+  },
+  swipeRightWrap: {
+    justifyContent: "center",
+    alignItems: "flex-end",
+    marginBottom: 10,
+  },
+  swipeAction: {
+    minWidth: 88,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  swipeText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  emptyCard: {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 16,
+    marginTop: 20,
+    gap: 8,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  emptySub: {
+    fontSize: 14,
+  },
+  emptyActionsRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 4,
+  },
+  emptyBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  emptyBtnText: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+  },
+  modalClose: {
+    padding: 4,
+  },
+  modalContent: {
+    padding: 16,
+    paddingBottom: 40,
+    gap: 10,
+  },
   fab: {
     position: "absolute",
     right: 20,

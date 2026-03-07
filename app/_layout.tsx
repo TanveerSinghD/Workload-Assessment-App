@@ -3,6 +3,7 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, Text, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -18,16 +19,18 @@ export default function RootLayout() {
   const colorScheme = useColorScheme();
 
   return (
-    <ThemeOverrideProvider>
-      <AuthProvider>
-        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-          <AppLockGate>
-            <RootNavigator />
-          </AppLockGate>
-          <StatusBar style="auto" />
-        </ThemeProvider>
-      </AuthProvider>
-    </ThemeOverrideProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeOverrideProvider>
+        <AuthProvider>
+          <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+            <AppLockGate>
+              <RootNavigator />
+            </AppLockGate>
+            <StatusBar style="auto" />
+          </ThemeProvider>
+        </AuthProvider>
+      </ThemeOverrideProvider>
+    </GestureHandlerRootView>
   );
 }
 
