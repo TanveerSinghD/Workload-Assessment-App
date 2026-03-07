@@ -27,7 +27,6 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { Swipeable } from "react-native-gesture-handler";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Task = {
@@ -52,9 +51,41 @@ type TaskSection = {
   title: string;
   data: DisplayTask[];
   allData: DisplayTask[];
+  subtitle: string;
 };
 
-const PREVIEW_LIMIT = 4;
+const PREVIEW_LIMIT = 3;
+
+function sectionMeta(key: TaskSection["key"], dark: boolean) {
+  if (key === "overdue") {
+    return {
+      icon: "warning-outline" as const,
+      accent: "#FF453A",
+      sectionBg: dark ? "#2A1C1C" : "#FFF5F5",
+      sectionBorder: dark ? "#5A2A2A" : "#FFD7D7",
+      rowBg: dark ? "#341F1F" : "#FFF9F9",
+      rowBorder: dark ? "#6A2F2F" : "#FFDADA",
+    };
+  }
+  if (key === "today") {
+    return {
+      icon: "sunny-outline" as const,
+      accent: "#0A84FF",
+      sectionBg: dark ? "#16233A" : "#F1F7FF",
+      sectionBorder: dark ? "#294A7A" : "#CFE2FF",
+      rowBg: dark ? "#1A2C47" : "#F7FBFF",
+      rowBorder: dark ? "#325A92" : "#D9E9FF",
+    };
+  }
+  return {
+    icon: "calendar-outline" as const,
+    accent: "#34C759",
+    sectionBg: dark ? "#17271D" : "#F3FFF6",
+    sectionBorder: dark ? "#2F6A43" : "#CDEFD8",
+    rowBg: dark ? "#1D3124" : "#F9FFFB",
+    rowBorder: dark ? "#3A7B52" : "#D8F4E1",
+  };
+}
 
 function dateFromTask(task: Task) {
   if (!task.due_date) return null;
@@ -101,6 +132,32 @@ function getShortDescription(notes?: string | null) {
   return words.slice(0, 8).join(" ") + (words.length > 8 ? "..." : "");
 }
 
+function scoreTaskMatch(query: string, task: Task) {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return 0;
+
+  const title = task.title.toLowerCase();
+  const notes = (task.notes ?? "").toLowerCase();
+  const titleWords = title.split(/\s+/).filter(Boolean);
+  const tokens = normalized.split(/\s+/).filter(Boolean);
+
+  let score = 0;
+
+  if (title === normalized) score += 120;
+  if (title.startsWith(normalized)) score += 90;
+  if (title.includes(normalized)) score += 55;
+  if (titleWords.some((word) => word.startsWith(normalized))) score += 70;
+  if (notes.includes(normalized)) score += 20;
+
+  tokens.forEach((token) => {
+    if (title.includes(token)) score += 14;
+    if (titleWords.some((word) => word.startsWith(token))) score += 10;
+    if (notes.includes(token)) score += 4;
+  });
+
+  return score;
+}
+
 const DIFFICULTY_RANK: Record<Task["difficulty"], number> = {
   hard: 0,
   medium: 1,
@@ -135,8 +192,6 @@ export default function TasksScreen() {
 
   const listRef = useRef<SectionList<DisplayTask, TaskSection>>(null);
   useScrollToTop(listRef);
-
-  const swipeRefs = useRef<Record<number, Swipeable | null>>({});
 
   const today = useMemo(() => {
     const base = new Date();
@@ -235,15 +290,48 @@ export default function TasksScreen() {
     return sorted;
   }, [focusFilter, openTasks, search, sortBy, today]);
 
+  const searchSuggestions = useMemo(() => {
+    const query = search.trim();
+    if (!query || batchMode) return [];
+
+    const candidates = openTasks
+      .filter((task) => {
+        if (focusFilter === "easy" || focusFilter === "medium" || focusFilter === "hard") {
+          return task.difficulty === focusFilter;
+        }
+        return true;
+      })
+      .map((task) => {
+        const daysUntil = daysDiff(dateFromTask(task), today);
+        return {
+          task: { ...task, daysUntil } as DisplayTask,
+          score: scoreTaskMatch(query, task),
+        };
+      })
+      .filter((item) => item.score > 0)
+      .sort((a, b) => {
+        if (a.score !== b.score) return b.score - a.score;
+        const aDue = a.task.daysUntil;
+        const bDue = b.task.daysUntil;
+        if (aDue === null && bDue === null) return a.task.title.localeCompare(b.task.title);
+        if (aDue === null) return 1;
+        if (bDue === null) return -1;
+        if (aDue !== bDue) return aDue - bDue;
+        return a.task.title.localeCompare(b.task.title);
+      });
+
+    return candidates.slice(0, 3).map((item) => item.task);
+  }, [batchMode, focusFilter, openTasks, search, today]);
+
   const sections = useMemo(() => {
     const overdue = visibleTasks.filter((task) => task.daysUntil !== null && task.daysUntil < 0);
     const dueToday = visibleTasks.filter((task) => task.daysUntil === 0);
     const upcoming = visibleTasks.filter((task) => task.daysUntil === null || task.daysUntil > 0);
 
     return [
-      { key: "overdue", title: "Overdue", allData: overdue },
-      { key: "today", title: "Due today", allData: dueToday },
-      { key: "upcoming", title: "Upcoming", allData: upcoming },
+      { key: "overdue", title: "Overdue", subtitle: "Handle first to get back on track", allData: overdue },
+      { key: "today", title: "Due today", subtitle: "Prioritize today’s deadlines", allData: dueToday },
+      { key: "upcoming", title: "Upcoming", subtitle: "Plan these next", allData: upcoming },
     ]
       .filter((section) => section.allData.length > 0)
       .map((section) => ({ ...section, data: section.allData.slice(0, PREVIEW_LIMIT) })) as TaskSection[];
@@ -434,25 +522,6 @@ export default function TasksScreen() {
     );
   }, [clearSelection, dark, loadTasks, selectedTasks]);
 
-  const closeSwipe = useCallback((id: number) => {
-    swipeRefs.current[id]?.close();
-  }, []);
-
-  const closeOtherSwipes = useCallback((keepId: number) => {
-    Object.entries(swipeRefs.current).forEach(([id, ref]) => {
-      if (Number(id) !== keepId) ref?.close();
-    });
-  }, []);
-
-  const handleSwipeOpen = useCallback(
-    (task: DisplayTask, direction: "left" | "right") => {
-      if (direction === "left") openQuickActions(task);
-      else handleMarkDone(task);
-      closeSwipe(task.id);
-    },
-    [closeSwipe, handleMarkDone, openQuickActions]
-  );
-
   const clearFilters = useCallback(() => {
     setFocusFilter("all");
     setSearch("");
@@ -502,17 +571,37 @@ export default function TasksScreen() {
   );
 
   const renderTaskCard = useCallback(
-    (task: DisplayTask) => {
+    (
+      task: DisplayTask,
+      sectionKey: TaskSection["key"],
+      index: number,
+      total: number,
+      hasFooter: boolean
+    ) => {
       const selected = selectedIds.has(task.id);
+      const meta = sectionMeta(sectionKey, dark);
+      const rowShape =
+        total === 1
+          ? hasFooter
+            ? styles.taskGroupSingleWithFooter
+            : styles.taskGroupSingleNoFooter
+          : index === 0
+          ? styles.taskGroupFirst
+          : index === total - 1
+          ? hasFooter
+            ? styles.taskGroupLastWithFooter
+            : styles.taskGroupLast
+          : styles.taskGroupMiddle;
       return (
         <Pressable
           onPress={() => handleOpenTask(task)}
           onLongPress={() => handleTaskLongPress(task)}
           style={[
-            styles.taskCard,
+            styles.taskGroupRow,
+            rowShape,
             {
-              borderColor: selected ? accent : border,
-              backgroundColor: card,
+              borderColor: selected ? accent : meta.sectionBorder,
+              backgroundColor: meta.rowBg,
             },
           ]}
         >
@@ -521,7 +610,17 @@ export default function TasksScreen() {
               <Text style={[styles.taskTitle, { color: text }]} numberOfLines={2}>
                 {task.title}
               </Text>
-              <Text style={[styles.taskSub, { color: subtle }]}>{formatDueLabel(task)}</Text>
+              <Text
+                style={[
+                  styles.taskSub,
+                  {
+                    color: sectionKey === "upcoming" ? subtle : meta.accent,
+                    fontWeight: sectionKey === "upcoming" ? "600" : "700",
+                  },
+                ]}
+              >
+                {formatDueLabel(task)}
+              </Text>
             </View>
 
             <View style={styles.headerRight}>
@@ -581,71 +680,81 @@ export default function TasksScreen() {
         </Pressable>
       );
     },
-    [accent, batchMode, border, card, dark, handleOpenTask, handleTaskLongPress, renderRowActions, selectedIds, subtle, text, toggleSelected]
+    [accent, batchMode, border, dark, handleOpenTask, handleTaskLongPress, renderRowActions, selectedIds, subtle, text, toggleSelected]
   );
 
   const renderItem = useCallback(
-    ({ item }: { item: DisplayTask }) => {
-      if (batchMode) return renderTaskCard(item);
-
-      return (
-        <Swipeable
-          ref={(ref) => {
-            swipeRefs.current[item.id] = ref;
-          }}
-          friction={2}
-          leftThreshold={42}
-          rightThreshold={42}
-          renderLeftActions={() => (
-            <View style={styles.swipeLeftWrap}>
-              <View style={[styles.swipeAction, { backgroundColor: "#1FAD4D" }]}>
-                <Ionicons name="checkmark" size={18} color="#fff" />
-                <Text style={styles.swipeText}>Complete</Text>
-              </View>
-            </View>
-          )}
-          renderRightActions={() => (
-            <View style={styles.swipeRightWrap}>
-              <View style={[styles.swipeAction, { backgroundColor: "#0A84FF" }]}>
-                <Ionicons name="ellipsis-horizontal" size={18} color="#fff" />
-                <Text style={styles.swipeText}>More</Text>
-              </View>
-            </View>
-          )}
-          onSwipeableWillOpen={() => closeOtherSwipes(item.id)}
-          onSwipeableOpen={(direction) => handleSwipeOpen(item, direction as "left" | "right")}
-        >
-          {renderTaskCard(item)}
-        </Swipeable>
-      );
+    ({ item, index, section }: { item: DisplayTask; index: number; section: TaskSection }) => {
+      const hasFooter = section.allData.length > section.data.length;
+      return renderTaskCard(item, section.key, index, section.data.length, hasFooter);
     },
-    [batchMode, closeOtherSwipes, handleSwipeOpen, renderTaskCard]
+    [renderTaskCard]
   );
 
   const renderSectionHeader = useCallback(
-    ({ section }: { section: TaskSection }) => (
-      <View style={[styles.sectionHeader, { backgroundColor: background }]}> 
-        <Text style={[styles.sectionTitle, { color: text }]}>{section.title}</Text>
-        <Text style={[styles.sectionCount, { color: subtle }]}>{section.allData.length}</Text>
-      </View>
-    ),
-    [background, subtle, text]
+    ({ section }: { section: TaskSection }) => {
+      const meta = sectionMeta(section.key, dark);
+      return (
+        <View
+          style={[
+            styles.sectionHeader,
+            {
+              backgroundColor: meta.sectionBg,
+              borderColor: meta.sectionBorder,
+            },
+          ]}
+        >
+          <View style={styles.sectionHeaderLeft}>
+            <View style={[styles.sectionIconWrap, { backgroundColor: `${meta.accent}22` }]}>
+              <Ionicons name={meta.icon} size={16} color={meta.accent} />
+            </View>
+            <View>
+              <Text style={[styles.sectionTitle, { color: text }]}>{section.title}</Text>
+              <Text style={[styles.sectionSubtitle, { color: subtle }]}>{section.subtitle}</Text>
+            </View>
+          </View>
+          <View style={[styles.sectionCountPill, { borderColor: meta.sectionBorder }]}>
+            <Text style={[styles.sectionCount, { color: meta.accent }]}>{section.allData.length}</Text>
+          </View>
+        </View>
+      );
+    },
+    [dark, subtle, text]
   );
 
   const renderSectionFooter = useCallback(
     ({ section }: { section: TaskSection }) => {
       if (section.allData.length <= section.data.length) return null;
+      const meta = sectionMeta(section.key, dark);
+      const remaining = section.allData.length - section.data.length;
       return (
         <TouchableOpacity
-          style={styles.moreBtn}
+          style={[
+            styles.moreBtn,
+            {
+              backgroundColor: meta.sectionBg,
+              borderColor: meta.sectionBorder,
+            },
+          ]}
           onPress={() => setTaskListModal({ title: section.title, tasks: section.allData })}
           activeOpacity={0.85}
+          accessibilityLabel={`View all ${section.allData.length} ${section.title.toLowerCase()} tasks`}
         >
-          <Text style={styles.moreBtnText}>More...</Text>
+          <View style={styles.moreBtnBody}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.moreBtnText, { color: meta.accent }]}>View all {section.allData.length} tasks</Text>
+              <Text style={[styles.moreBtnSub, { color: subtle }]}>
+                +{remaining} more in {section.title.toLowerCase()}
+              </Text>
+            </View>
+            <View style={[styles.moreBtnIconWrap, { backgroundColor: `${meta.accent}22` }]}>
+              <Ionicons name="chevron-forward" size={14} color={meta.accent} />
+            </View>
+          </View>
         </TouchableOpacity>
       );
     },
-    []
+    [dark, subtle]
   );
 
   const listHeader = (
@@ -691,6 +800,32 @@ export default function TasksScreen() {
         ) : null}
       </View>
 
+      {search.trim() && !batchMode ? (
+        <View style={[styles.suggestionsWrap, { borderColor: border, backgroundColor: card }]}>
+          <Text style={[styles.suggestionsTitle, { color: subtle }]}>Likely tasks</Text>
+          {searchSuggestions.length === 0 ? (
+            <Text style={[styles.suggestionsEmpty, { color: subtle }]}>No close matches yet.</Text>
+          ) : (
+            searchSuggestions.map((task) => (
+              <TouchableOpacity
+                key={task.id}
+                style={[styles.suggestionRow, { borderColor: border }]}
+                activeOpacity={0.85}
+                onPress={() => router.push({ pathname: "/edit-task", params: { id: String(task.id) } })}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.suggestionTitle, { color: text }]} numberOfLines={1}>
+                    {task.title}
+                  </Text>
+                  <Text style={[styles.suggestionMeta, { color: subtle }]}>{formatDueLabel(task)}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={subtle} />
+              </TouchableOpacity>
+            ))
+          )}
+        </View>
+      ) : null}
+
       <View style={styles.sortRow}>
         {([
           { key: "due", label: "Due soonest" },
@@ -734,7 +869,6 @@ export default function TasksScreen() {
         </TouchableOpacity>
       </View>
 
-      <Text style={[styles.swipeHint, { color: subtle }]}>Swipe right to complete, left for more actions.</Text>
     </View>
   );
 
@@ -813,9 +947,7 @@ export default function TasksScreen() {
           contentContainerStyle={{
             paddingHorizontal: 16,
             paddingBottom: insets.bottom + 120,
-            gap: 10,
           }}
-          ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
           showsVerticalScrollIndicator={false}
           onScroll={handleScroll}
           scrollEventThrottle={16}
@@ -978,6 +1110,40 @@ const styles = StyleSheet.create({
     fontSize: 15,
     paddingVertical: 0,
   },
+  suggestionsWrap: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    gap: 4,
+  },
+  suggestionsTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.2,
+    marginBottom: 2,
+  },
+  suggestionsEmpty: {
+    fontSize: 13,
+    paddingVertical: 6,
+  },
+  suggestionRow: {
+    borderTopWidth: 1,
+    paddingTop: 8,
+    paddingBottom: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  suggestionTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  suggestionMeta: {
+    fontSize: 12,
+    marginTop: 2,
+  },
   sortRow: {
     flexDirection: "row",
     gap: 8,
@@ -1025,39 +1191,121 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
   },
-  swipeHint: {
-    fontSize: 12,
-    marginTop: -2,
-  },
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingTop: 10,
-    paddingBottom: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    marginTop: 8,
+    marginBottom: 0,
+  },
+  sectionHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    flex: 1,
+    minWidth: 0,
+  },
+  sectionIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: "800",
+  },
+  sectionSubtitle: {
+    fontSize: 12,
+    marginTop: 1,
+  },
+  sectionCountPill: {
+    borderWidth: 1,
+    borderRadius: 999,
+    minWidth: 34,
+    height: 28,
+    paddingHorizontal: 8,
+    alignItems: "center",
+    justifyContent: "center",
   },
   sectionCount: {
     fontSize: 13,
-    fontWeight: "700",
+    fontWeight: "800",
   },
   moreBtn: {
-    alignSelf: "flex-start",
-    paddingVertical: 6,
-    paddingHorizontal: 4,
-    marginBottom: 4,
+    width: "100%",
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginTop: 0,
+    marginBottom: 6,
+    borderWidth: 1,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+  },
+  moreBtnBody: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
   moreBtnText: {
     fontSize: 14,
-    fontWeight: "700",
-    color: "#0A84FF",
+    fontWeight: "800",
+  },
+  moreBtnSub: {
+    fontSize: 12,
+    marginTop: 2,
+    fontWeight: "500",
+  },
+  moreBtnIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  taskGroupRow: {
+    padding: 12,
+    gap: 8,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+  },
+  taskGroupSingleNoFooter: {
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderBottomLeftRadius: 16,
+    borderBottomRightRadius: 16,
+  },
+  taskGroupSingleWithFooter: {
+    borderTopWidth: 1,
+  },
+  taskGroupFirst: {
+    borderTopWidth: 1,
+  },
+  taskGroupMiddle: {
+    borderTopWidth: 1,
+  },
+  taskGroupLastWithFooter: {
+    borderTopWidth: 1,
+  },
+  taskGroupLast: {
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderBottomLeftRadius: 16,
+    borderBottomRightRadius: 16,
   },
   taskCard: {
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 12,
     padding: 12,
     gap: 8,
   },
@@ -1113,30 +1361,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-  },
-  swipeLeftWrap: {
-    justifyContent: "center",
-    alignItems: "flex-start",
-    marginBottom: 10,
-  },
-  swipeRightWrap: {
-    justifyContent: "center",
-    alignItems: "flex-end",
-    marginBottom: 10,
-  },
-  swipeAction: {
-    minWidth: 88,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-  },
-  swipeText: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "700",
   },
   emptyCard: {
     borderWidth: 1,
