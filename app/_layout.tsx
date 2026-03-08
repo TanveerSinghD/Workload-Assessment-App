@@ -63,12 +63,13 @@ function RootNavigator() {
   }
 
   return (
-    <Stack>
-      <Stack.Screen name="(tabs)" options={{ headerShown: false, title: "", headerBackTitle: "" }} />
-      <Stack.Screen name="add-assignment" options={{ title: "Add Task", headerBackTitle: "" }} />
-      <Stack.Screen name="completed-tasks" options={{ title: "Completed Tasks", headerBackTitle: "" }} />
-      <Stack.Screen name="tasks-difficulty" options={{ title: "", headerBackTitle: "" }} />
-      <Stack.Screen name="tasks-filter" options={{ title: "", headerBackTitle: "" }} />
+      <Stack>
+        <Stack.Screen name="(tabs)" options={{ headerShown: false, title: "", headerBackTitle: "" }} />
+        <Stack.Screen name="add-assignment" options={{ title: "Add Task", headerBackTitle: "" }} />
+        <Stack.Screen name="edit-task" options={{ title: "Edit Task", headerBackTitle: "" }} />
+        <Stack.Screen name="completed-tasks" options={{ title: "Completed Tasks", headerBackTitle: "" }} />
+        <Stack.Screen name="tasks-difficulty" options={{ title: "", headerBackTitle: "" }} />
+        <Stack.Screen name="tasks-filter" options={{ title: "", headerBackTitle: "" }} />
       <Stack.Screen name="nav-quick-actions" options={{ title: "Nav Quick Actions", headerBackTitle: "" }} />
       <Stack.Screen name="set-pin" options={{ title: "Set PIN", headerBackTitle: "" }} />
       <Stack.Screen name="disable-app-lock" options={{ title: "Disable App Lock", headerBackTitle: "" }} />

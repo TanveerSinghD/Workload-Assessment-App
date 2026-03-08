@@ -15,11 +15,24 @@ export type AssistantAction =
   | { type: "SET_TASK_FILTER"; payload: { filter: "all" | "today" | "week" | "overdue" } }
   | {
       type: "CREATE_TASK";
-      payload: { title: string; description?: string; difficulty?: "easy" | "medium" | "hard"; due_date?: string | null };
+      payload: {
+        title: string;
+        description?: string;
+        difficulty?: "easy" | "medium" | "hard";
+        due_date?: string | null;
+        priority?: "normal" | "high";
+        category?: "coursework" | "revision" | "project" | "personal" | null;
+      };
     }
   | {
       type: "UPDATE_TASK";
-      payload: { id: number; title?: string; notes?: string; difficulty?: "easy" | "medium" | "hard"; due_date?: string | null };
+      payload: {
+        id: number;
+        title?: string;
+        notes?: string;
+        difficulty?: "easy" | "medium" | "hard";
+        due_date?: string | null;
+      };
     }
   | { type: "COMPLETE_TASK"; payload: { id: number; value?: boolean } }
   | { type: "DELETE_TASK"; payload: { id: number } }

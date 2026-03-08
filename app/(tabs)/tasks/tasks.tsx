@@ -35,6 +35,8 @@ type Task = {
   title: string;
   notes?: string | null;
   difficulty: "easy" | "medium" | "hard";
+  priority?: "normal" | "high" | null;
+  category?: "coursework" | "revision" | "project" | "personal" | null;
   due_date?: string | null;
   completed?: number;
   created_at?: string | null;
@@ -165,6 +167,12 @@ const DIFFICULTY_RANK: Record<Task["difficulty"], number> = {
   easy: 2,
 };
 
+function normalizePriority(task: Pick<Task, "priority" | "notes">): "normal" | "high" {
+  if (task.priority === "high" || task.priority === "normal") return task.priority;
+  if (task.notes && /priority:\s*high/i.test(task.notes)) return "high";
+  return "normal";
+}
+
 export default function TasksScreen() {
   const scheme = useColorScheme();
   const dark = scheme === "dark";
@@ -266,6 +274,8 @@ export default function TasksScreen() {
 
     const sorted = [...withMeta].sort((a, b) => {
       if (sortBy === "hard") {
+        const priority = (normalizePriority(a) === "high" ? 0 : 1) - (normalizePriority(b) === "high" ? 0 : 1);
+        if (priority !== 0) return priority;
         const rank = (DIFFICULTY_RANK[a.difficulty] ?? 3) - (DIFFICULTY_RANK[b.difficulty] ?? 3);
         if (rank !== 0) return rank;
       }
@@ -282,6 +292,9 @@ export default function TasksScreen() {
       if (aDue === null) return 1;
       if (bDue === null) return -1;
       if (aDue !== bDue) return aDue - bDue;
+
+      const priority = (normalizePriority(a) === "high" ? 0 : 1) - (normalizePriority(b) === "high" ? 0 : 1);
+      if (priority !== 0) return priority;
 
       const rank = (DIFFICULTY_RANK[a.difficulty] ?? 3) - (DIFFICULTY_RANK[b.difficulty] ?? 3);
       if (rank !== 0) return rank;
@@ -318,6 +331,8 @@ export default function TasksScreen() {
         if (aDue === null) return 1;
         if (bDue === null) return -1;
         if (aDue !== bDue) return aDue - bDue;
+        const priority = (normalizePriority(a.task) === "high" ? 0 : 1) - (normalizePriority(b.task) === "high" ? 0 : 1);
+        if (priority !== 0) return priority;
         return a.task.title.localeCompare(b.task.title);
       });
 

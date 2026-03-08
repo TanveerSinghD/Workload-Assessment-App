@@ -16,6 +16,8 @@ export type TaskRow = {
   title: string;
   subject: string | null;
   difficulty: "easy" | "medium" | "hard" | null;
+  priority: "normal" | "high" | null;
+  category: "coursework" | "revision" | "project" | "personal" | null;
   due_date: string | null;
   notes: string | null;
   completed: number;
@@ -62,6 +64,8 @@ export async function initDatabase() {
       title TEXT NOT NULL,
       subject TEXT,
       difficulty TEXT,
+      priority TEXT DEFAULT 'normal',
+      category TEXT,
       due_date TEXT,
       notes TEXT,
       completed INTEGER DEFAULT 0,
@@ -81,6 +85,8 @@ export async function initDatabase() {
 
   // Old installs won't have user scoping yet
   await ensureColumnExists("tasks", "user_id", "INTEGER");
+  await ensureColumnExists("tasks", "priority", "TEXT DEFAULT 'normal'");
+  await ensureColumnExists("tasks", "category", "TEXT");
   await ensureColumnExists("sessions", "signed_out", "INTEGER DEFAULT 0");
 }
 
@@ -262,17 +268,19 @@ export async function addTask(task: {
   description: string;
   difficulty: "easy" | "medium" | "hard";
   due_date: string | null;
+  priority?: "normal" | "high";
+  category?: "coursework" | "revision" | "project" | "personal" | null;
 }) {
-  const { title, description, difficulty, due_date } = task;
+  const { title, description, difficulty, due_date, priority = "normal", category = null } = task;
   const userId = await getActiveUserId();
   if (!userId) throw new Error("No active user session");
 
   await db.runAsync(
     `
-      INSERT INTO tasks (title, notes, difficulty, due_date, created_at, user_id)
-      VALUES (?, ?, ?, ?, datetime('now'), ?);
+      INSERT INTO tasks (title, notes, difficulty, priority, category, due_date, created_at, user_id)
+      VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?);
     `,
-    [title, description, difficulty, due_date, userId]
+    [title, description, difficulty, priority, category, due_date, userId]
   );
 }
 
@@ -305,18 +313,39 @@ export async function updateTask(task: {
   notes: string;
   difficulty: "easy" | "medium" | "hard";
   due_date: string | null;
+  priority?: "normal" | "high";
+  category?: "coursework" | "revision" | "project" | "personal" | null;
 }) {
-  const { id, title, notes, difficulty, due_date } = task;
+  const { id, title, notes, difficulty, due_date, priority, category } = task;
   const userId = await getActiveUserId();
   if (!userId) throw new Error("No active user session");
+  const hasPriority = priority === "normal" || priority === "high";
+  const hasCategory = category !== undefined;
 
   await db.runAsync(
     `
       UPDATE tasks
-      SET title = ?, notes = ?, difficulty = ?, due_date = ?
+      SET
+        title = ?,
+        notes = ?,
+        difficulty = ?,
+        due_date = ?,
+        priority = CASE WHEN ? = 1 THEN ? ELSE priority END,
+        category = CASE WHEN ? = 1 THEN ? ELSE category END
       WHERE id = ? AND user_id = ?
     `,
-    [title, notes, difficulty, due_date, id, userId]
+    [
+      title,
+      notes,
+      difficulty,
+      due_date,
+      hasPriority ? 1 : 0,
+      priority ?? null,
+      hasCategory ? 1 : 0,
+      category ?? null,
+      id,
+      userId,
+    ]
   );
 }
 
@@ -369,10 +398,19 @@ export async function duplicateTask(id: number) {
 
   await db.runAsync(
     `
-      INSERT INTO tasks (title, notes, difficulty, due_date, created_at, completed, subject, user_id)
-      VALUES (?, ?, ?, ?, datetime('now'), 0, ?, ?);
+      INSERT INTO tasks (title, notes, difficulty, priority, category, due_date, created_at, completed, subject, user_id)
+      VALUES (?, ?, ?, ?, ?, ?, datetime('now'), 0, ?, ?);
     `,
-    [copyTitle, original.notes, original.difficulty, original.due_date, original.subject, userId]
+    [
+      copyTitle,
+      original.notes,
+      original.difficulty,
+      original.priority ?? "normal",
+      original.category ?? null,
+      original.due_date,
+      original.subject,
+      userId,
+    ]
   );
 }
 

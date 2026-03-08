@@ -11,6 +11,8 @@ type Task = {
   title: string;
   notes?: string | null;
   difficulty: "easy" | "medium" | "hard";
+  priority?: "normal" | "high" | null;
+  category?: "coursework" | "revision" | "project" | "personal" | null;
   due_date?: string | null;
   completed?: number;
 };
@@ -20,6 +22,12 @@ type PlannedTask = Task & {
   daysUntil: number | null;
   score: number;
   reason: string;
+};
+const CATEGORY_LABEL: Record<NonNullable<Task["category"]>, string> = {
+  coursework: "Coursework",
+  revision: "Revision",
+  project: "Project",
+  personal: "Personal",
 };
 
 function parseDueDate(due: string | null | undefined) {
@@ -34,6 +42,12 @@ function diffInDays(date: Date | null) {
   today.setHours(0, 0, 0, 0);
   const diff = date.getTime() - today.getTime();
   return Math.round(diff / (1000 * 60 * 60 * 24));
+}
+
+function normalizePriority(task: Pick<Task, "priority" | "notes">): "normal" | "high" {
+  if (task.priority === "high" || task.priority === "normal") return task.priority;
+  if (task.notes && /priority:\s*high/i.test(task.notes)) return "high";
+  return "normal";
 }
 
 export default function PlanSectionScreen() {
@@ -82,7 +96,8 @@ export default function PlanSectionScreen() {
         })();
 
         const effort = task.difficulty === "hard" ? 3 : task.difficulty === "medium" ? 2 : 1;
-        const score = urgency + effort;
+        const priorityBoost = normalizePriority(task) === "high" ? 2.5 : 0;
+        const score = urgency + effort + priorityBoost;
 
         const reasonParts: string[] = [];
         if (daysUntil === null) reasonParts.push("No due date");
@@ -94,6 +109,8 @@ export default function PlanSectionScreen() {
         if (task.difficulty === "hard") reasonParts.push("High effort");
         else if (task.difficulty === "medium") reasonParts.push("Medium effort");
         else reasonParts.push("Quick win");
+        if (normalizePriority(task) === "high") reasonParts.push("High priority");
+        if (task.category) reasonParts.push(CATEGORY_LABEL[task.category]);
 
         return { ...task, dueDate, daysUntil, score, reason: reasonParts.join(" · ") } as PlannedTask;
       })

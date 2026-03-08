@@ -31,6 +31,8 @@ type Task = {
   title: string;
   notes?: string | null;
   difficulty: "easy" | "medium" | "hard";
+  priority?: "normal" | "high" | null;
+  category?: "coursework" | "revision" | "project" | "personal" | null;
   due_date?: string | null;
   completed?: number;
   created_at?: string | null;
@@ -41,6 +43,12 @@ const DIFFICULTY_RANK: Record<Task["difficulty"], number> = {
   medium: 1,
   easy: 2,
 };
+
+function normalizePriority(task: Pick<Task, "priority" | "notes">): "normal" | "high" {
+  if (task.priority === "high" || task.priority === "normal") return task.priority;
+  if (task.notes && /priority:\s*high/i.test(task.notes)) return "high";
+  return "normal";
+}
 
 function formatTimer(totalSeconds: number) {
   const safe = Math.max(0, totalSeconds);
@@ -207,7 +215,8 @@ export default function HomeScreen() {
       .sort((a, b) => {
         const aDiff = daysDiff(dateFromTask(a)) ?? Number.MAX_SAFE_INTEGER;
         const bDiff = daysDiff(dateFromTask(b)) ?? Number.MAX_SAFE_INTEGER;
-        return aDiff - bDiff;
+        if (aDiff !== bDiff) return aDiff - bDiff;
+        return (normalizePriority(a) === "high" ? 0 : 1) - (normalizePriority(b) === "high" ? 0 : 1);
       })
       .slice(0, 3);
   }, [tasks, daysDiff, dateFromTask]);
@@ -222,6 +231,9 @@ export default function HomeScreen() {
       if (dueA === null && dueB !== null) return 1;
       if (dueA !== null && dueB === null) return -1;
       if (dueA !== null && dueB !== null && dueA !== dueB) return dueA - dueB;
+
+      const priority = (normalizePriority(a) === "high" ? 0 : 1) - (normalizePriority(b) === "high" ? 0 : 1);
+      if (priority !== 0) return priority;
 
       const rank = (DIFFICULTY_RANK[a.difficulty] ?? 3) - (DIFFICULTY_RANK[b.difficulty] ?? 3);
       if (rank !== 0) return rank;

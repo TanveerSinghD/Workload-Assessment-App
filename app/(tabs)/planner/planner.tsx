@@ -61,6 +61,8 @@ type Task = {
   subject?: string | null;
   notes?: string | null;
   difficulty: "easy" | "medium" | "hard";
+  priority?: "normal" | "high" | null;
+  category?: "coursework" | "revision" | "project" | "personal" | null;
   due_date?: string | null;
   completed?: number;
 };
@@ -89,6 +91,12 @@ type AssistantReplyPayload = {
 };
 
 type PlannerSectionKey = "hero" | "overdue" | "gameplan" | "suggested" | "how";
+const CATEGORY_LABEL: Record<NonNullable<Task["category"]>, string> = {
+  coursework: "Coursework",
+  revision: "Revision",
+  project: "Project",
+  personal: "Personal",
+};
 
 const INITIAL_CHAT_MESSAGE: ChatMessage = {
   id: "welcome",
@@ -144,11 +152,20 @@ function roundToNextQuarterHour(base: Date) {
 
 const DIFFICULTY_RANK: Record<Task["difficulty"], number> = { hard: 0, medium: 1, easy: 2 };
 
+function normalizePriority(task: Pick<Task, "priority" | "notes">): "normal" | "high" {
+  if (task.priority === "high" || task.priority === "normal") return task.priority;
+  if (task.notes && /priority:\s*high/i.test(task.notes)) return "high";
+  return "normal";
+}
+
 function sortTasksForDisplay(list: Task[]) {
   return [...list].sort((a, b) => {
     const aDate = a.due_date ?? "";
     const bDate = b.due_date ?? "";
     if (aDate !== bDate) return aDate.localeCompare(bDate);
+    const aPriority = normalizePriority(a) === "high" ? 0 : 1;
+    const bPriority = normalizePriority(b) === "high" ? 0 : 1;
+    if (aPriority !== bPriority) return aPriority - bPriority;
     const aRank = DIFFICULTY_RANK[a.difficulty] ?? 3;
     const bRank = DIFFICULTY_RANK[b.difficulty] ?? 3;
     return aRank - bRank;
@@ -217,7 +234,11 @@ function buildReschedulePlan(
     load.set(day, count);
   });
 
-  const sorted = [...tasksToMove].sort((a, b) => (DIFFICULTY_RANK[a.difficulty] ?? 3) - (DIFFICULTY_RANK[b.difficulty] ?? 3));
+  const sorted = [...tasksToMove].sort((a, b) => {
+    const priorityDiff = (normalizePriority(b) === "high" ? 1 : 0) - (normalizePriority(a) === "high" ? 1 : 0);
+    if (priorityDiff !== 0) return priorityDiff;
+    return (DIFFICULTY_RANK[a.difficulty] ?? 3) - (DIFFICULTY_RANK[b.difficulty] ?? 3);
+  });
   const moves: RescheduleMove[] = [];
 
   sorted.forEach((task) => {
@@ -491,6 +512,14 @@ function parseCreateTaskRequest(message: string) {
   if (!/(add|create).*(task)/.test(lower)) return null;
   const difficultyMatch = lower.match(/(easy|medium|hard)/);
   const difficulty = (difficultyMatch?.[1] as "easy" | "medium" | "hard") ?? "medium";
+  const priority: "normal" | "high" = /(high priority|urgent|important|asap)/.test(lower) ? "high" : "normal";
+  const category: "coursework" | "revision" | "project" | "personal" | null = (() => {
+    if (/(revise|revision|study|practice)/.test(lower)) return "revision";
+    if (/(project|build|prototype)/.test(lower)) return "project";
+    if (/(assignment|coursework|class|module|lecture)/.test(lower)) return "coursework";
+    if (/(personal|home|errand|health|family)/.test(lower)) return "personal";
+    return null;
+  })();
   let due: string | null = null;
   if (/tomorrow/.test(lower)) {
     const d = new Date();
@@ -507,7 +536,7 @@ function parseCreateTaskRequest(message: string) {
   if (afterTask && afterTask.trim().length > 3) title = afterTask.trim();
   title = title.replace(/due .*/i, "").trim();
   if (!title) title = "New task";
-  return { title, due_date: due, difficulty };
+  return { title, due_date: due, difficulty, priority, category };
 }
 
 function wantsOverdueNavigation(message: string) {
@@ -706,7 +735,8 @@ export default function PlannerScreen() {
           return boost;
         })();
 
-        const score = urgency + effort + similarityBoost;
+        const priorityBoost = normalizePriority(task) === "high" ? 2.5 : 0;
+        const score = urgency + effort + similarityBoost + priorityBoost;
 
         const reasonParts: string[] = [];
 
@@ -719,6 +749,8 @@ export default function PlannerScreen() {
         if (task.difficulty === "hard") reasonParts.push("High effort");
         else if (task.difficulty === "medium") reasonParts.push("Medium effort");
         else reasonParts.push("Quick win");
+        if (normalizePriority(task) === "high") reasonParts.push("High priority");
+        if (task.category) reasonParts.push(CATEGORY_LABEL[task.category]);
 
         return {
           ...task,
@@ -834,6 +866,8 @@ export default function PlannerScreen() {
                     description: task.notes ?? task.title,
                     difficulty: task.difficulty as "easy" | "medium" | "hard",
                     due_date: due,
+                    priority: task.priority === "high" ? "high" : "normal",
+                    category: task.category ?? null,
                   });
                   await loadTasks();
                   Alert.alert("Follow-up added", "We'll remind you to review this task.");
@@ -1292,12 +1326,14 @@ export default function PlannerScreen() {
             description: createRequest.title,
             difficulty: createRequest.difficulty,
             due_date: createRequest.due_date ?? null,
+            priority: createRequest.priority,
+            category: createRequest.category,
           },
         });
         actions.push({ type: "NAVIGATE", payload: { route: "/(tabs)/tasks/tasks" } });
         actions.push({ type: "SET_TASK_FILTER", payload: { filter: "all" } });
         return {
-          text: `Added “${createRequest.title}” (${createRequest.difficulty})${createRequest.due_date ? ` due ${createRequest.due_date}` : ""}.`,
+          text: `Added “${createRequest.title}” (${createRequest.priority === "high" ? "high priority, " : ""}${createRequest.difficulty})${createRequest.due_date ? ` due ${createRequest.due_date}` : ""}.`,
           actions,
         };
       }

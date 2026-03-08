@@ -31,6 +31,8 @@ type Task = {
   title: string;
   notes?: string | null;
   difficulty: "easy" | "medium" | "hard";
+  priority?: "normal" | "high" | null;
+  category?: "coursework" | "revision" | "project" | "personal" | null;
   due_date?: string | null;
   completed?: number;
   created_at?: string | null;
@@ -59,6 +61,12 @@ const DIFFICULTY_RANK: Record<Task["difficulty"], number> = {
   medium: 1,
   easy: 2,
 };
+
+function normalizePriority(task: Pick<Task, "priority" | "notes">): "normal" | "high" {
+  if (task.priority === "high" || task.priority === "normal") return task.priority;
+  if (task.notes && /priority:\s*high/i.test(task.notes)) return "high";
+  return "normal";
+}
 
 function dateFromTask(task: Task) {
   if (!task.due_date) return null;
@@ -106,6 +114,10 @@ function sortFocusQueue(tasks: Task[], today: Date) {
       if (dueA !== null && dueB === null) return -1;
       if (dueA !== null && dueB !== null && dueA !== dueB) return dueA - dueB;
 
+      const priorityA = normalizePriority(a) === "high" ? 0 : 1;
+      const priorityB = normalizePriority(b) === "high" ? 0 : 1;
+      if (priorityA !== priorityB) return priorityA - priorityB;
+
       const rank = (DIFFICULTY_RANK[a.difficulty] ?? 3) - (DIFFICULTY_RANK[b.difficulty] ?? 3);
       if (rank !== 0) return rank;
 
@@ -127,6 +139,7 @@ function dueLabel(task: Task, today: Date) {
 function getSuggestionTag(task: Task, today: Date): "Quick win" | "Urgent" | "Balance difficulty" {
   const due = daysDiff(dateFromTask(task), today);
   if (due !== null && due < 0) return "Urgent";
+  if (normalizePriority(task) === "high") return "Urgent";
   if (task.difficulty === "easy") return "Quick win";
   return "Balance difficulty";
 }

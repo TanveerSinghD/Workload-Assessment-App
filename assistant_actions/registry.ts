@@ -32,6 +32,8 @@ async function exec(action: AssistantAction, deps: ActionDeps) {
         description: action.payload.description ?? action.payload.title,
         difficulty: action.payload.difficulty ?? "medium",
         due_date: due,
+        priority: action.payload.priority ?? "normal",
+        category: action.payload.category ?? null,
       });
       await deps.onTasksChanged?.();
       return;
