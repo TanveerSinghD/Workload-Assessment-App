@@ -115,10 +115,11 @@ async function getSession(): Promise<SessionRow | null> {
   return db.getFirstAsync<SessionRow>("SELECT user_id, signed_out FROM sessions WHERE id = 1");
 }
 
-async function ensureActiveUser(): Promise<UserProfile | null> {
+async function ensureActiveUser(options?: { ignoreSignedOut?: boolean }): Promise<UserProfile | null> {
+  const ignoreSignedOut = options?.ignoreSignedOut === true;
   // Try existing session; respect explicit sign-out
   const session = await getSession();
-  if (isSignedOut(session)) {
+  if (!ignoreSignedOut && isSignedOut(session)) {
     return null;
   }
 
@@ -183,7 +184,12 @@ export async function getActiveUser(): Promise<UserProfile | null> {
 
 async function getActiveUserId() {
   const user = await ensureActiveUser();
-  return user?.id ?? null;
+  if (user?.id) return user.id;
+
+  // Recovery path: some old flows may leave `signed_out=1` while the app is still in-session.
+  // For data actions, recover the latest user record and rehydrate the session.
+  const recovered = await ensureActiveUser({ ignoreSignedOut: true });
+  return recovered?.id ?? null;
 }
 
 export async function adoptOrphanTasks(userId: number) {

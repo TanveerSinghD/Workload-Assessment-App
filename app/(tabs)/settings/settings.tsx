@@ -131,9 +131,12 @@ export default function SettingsScreen() {
   };
 
   const refreshLockState = useCallback(async () => {
-    const state = await getAppLockState();
-    setAppLock(state.enabled);
-    setLoadingLock(false);
+    try {
+      const state = await getAppLockState();
+      setAppLock(state.enabled);
+    } finally {
+      setLoadingLock(false);
+    }
   }, []);
 
   const refreshNotifications = useCallback(async () => {
@@ -383,6 +386,7 @@ export default function SettingsScreen() {
               <Text style={[styles.value, { color: subtext }]}>Secure</Text>
             </TouchableOpacity>
           )}
+
         </View>
 
         <View style={[styles.card, { backgroundColor: card }]}>

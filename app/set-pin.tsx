@@ -1,9 +1,11 @@
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { PasscodeKeypad } from "@/components/passcode-keypad";
 import { setAppLockEnabled, setPinHash } from "@/lib/app-lock-storage";
+import { Ionicons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
 import { Stack, router } from "expo-router";
 import { useMemo, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 
 export default function SetPinScreen() {
   const scheme = useColorScheme();
@@ -19,8 +21,10 @@ export default function SetPinScreen() {
       card: dark ? "#2C2C2E" : "#FFFFFF",
       text: dark ? "#FFFFFF" : "#000000",
       muted: dark ? "#A1A1A5" : "#6B6B6B",
-      accent: "#0A84FF",
+      accent: dark ? "#7CB5FF" : "#0A84FF",
       error: "#FF3B30",
+      border: dark ? "rgba(255,255,255,0.12)" : "rgba(10,22,70,0.10)",
+      iconBg: dark ? "rgba(124,181,255,0.16)" : "rgba(10,132,255,0.12)",
     }),
     [dark]
   );
@@ -31,6 +35,7 @@ export default function SetPinScreen() {
       setFirstPin(pin);
       setStep("confirm");
       setResetSignal((n) => n + 1);
+      void Haptics.selectionAsync();
       return;
     }
 
@@ -44,6 +49,7 @@ export default function SetPinScreen() {
 
     await setPinHash(pin);
     await setAppLockEnabled(true);
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     router.back();
   };
 
@@ -53,16 +59,30 @@ export default function SetPinScreen() {
         options={{
           title: "Set PIN",
           headerBackTitle: "",
+          headerShadowVisible: false,
+          headerStyle: { backgroundColor: colors.background },
         }}
       />
 
-      <View style={[styles.card, { backgroundColor: colors.card }]}>
+      <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <View style={styles.header}>
+          <View style={[styles.iconWrap, { backgroundColor: colors.iconBg }]}>
+            <Ionicons name="lock-closed" size={18} color={colors.accent} />
+          </View>
+          <Text style={[styles.headerTitle, { color: colors.accent }]}>App Lock</Text>
+        </View>
+
         <PasscodeKeypad
-          title={step === "enter" ? "Enter Passcode" : "Re-enter Passcode"}
-          subtitle="Use a 6-digit PIN to lock the app."
+          title={step === "enter" ? "Create your passcode" : "Confirm your passcode"}
+          subtitle={
+            step === "enter"
+              ? "Step 1 of 2. Enter a 6-digit passcode."
+              : "Step 2 of 2. Re-enter the same 6 digits."
+          }
           error={error}
           onSubmit={handleSubmit}
           submitLabel={step === "enter" ? "Next" : "Confirm"}
+          statusMessage={step === "enter" ? "Use 6 digits for stronger security." : null}
           showCancel
           onCancel={() => router.back()}
           resetSignal={resetSignal}
@@ -75,12 +95,38 @@ export default function SetPinScreen() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    padding: 20,
-    justifyContent: "center",
+    paddingHorizontal: 16,
+    paddingTop: 20,
+    paddingBottom: 16,
+    justifyContent: "flex-start",
   },
   card: {
-    borderRadius: 16,
-    padding: 20,
-    gap: 12,
+    borderRadius: 28,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    shadowColor: "#000",
+    shadowOpacity: 0.08,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 5,
+  },
+  header: {
+    alignItems: "center",
+    marginBottom: 8,
+    gap: 6,
+  },
+  iconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
   },
 });

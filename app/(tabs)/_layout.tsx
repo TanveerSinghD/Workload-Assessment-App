@@ -3,7 +3,7 @@ import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 import * as SecureStore from "expo-secure-store";
-import { Href, Tabs, usePathname, useRouter } from "expo-router";
+import { Href, Stack, Tabs, usePathname, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
@@ -298,6 +298,7 @@ export default function TabLayout() {
 
   return (
     <View style={styles.root}>
+      <Stack.Screen options={{ headerShown: false, title: "" }} />
       <Tabs
         screenOptions={{
           headerShown: false,
