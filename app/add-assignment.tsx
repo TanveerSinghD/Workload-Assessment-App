@@ -18,13 +18,11 @@ export default function AddAssignmentScreen() {
   const text = dark ? "#FFFFFF" : "#000000";
   const border = dark ? "#3A3A3C" : "#C7C7CC";
 
-  // Title + Date
   const [title, setTitle] = useState("");
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [selectedYear, setSelectedYear] = useState<string | null>(null);
 
-  // Details
   const [description, setDescription] = useState("");
   const [difficulty, setDifficulty] = useState<"easy" | "medium" | "hard" | null>(null);
 
@@ -53,13 +51,11 @@ export default function AddAssignmentScreen() {
     Dec: "12",
   };
 
-  // Disable past years
   const years = useMemo(() => {
     const currentYear = new Date().getFullYear();
     return [String(currentYear), String(currentYear + 1)];
   }, []);
 
-  // Default to today's date
   useEffect(() => {
     const now = new Date();
     setSelectedDay(String(now.getDate()));
@@ -88,7 +84,7 @@ export default function AddAssignmentScreen() {
 
       router.back();
     } catch (error) {
-      console.error("Failed to save task", error);
+      if (__DEV__) console.error("Failed to save task", error);
       Alert.alert("Save failed", "Please sign in again and try saving.");
     }
   };
@@ -119,7 +115,6 @@ export default function AddAssignmentScreen() {
       <Text style={[styles.label, { color: text, marginTop: 20 }]}>Due Date</Text>
 
       <View style={styles.row}>
-        {/* MONTH */}
         <View style={[styles.pickerBox, { borderColor: border }]}>
           <Picker
             selectedValue={selectedMonth}
@@ -146,7 +141,6 @@ export default function AddAssignmentScreen() {
           </Picker>
         </View>
 
-        {/* DAY */}
         <View style={[styles.pickerBox, { borderColor: border }]}>
           <Picker
             selectedValue={selectedDay}
@@ -175,7 +169,6 @@ export default function AddAssignmentScreen() {
           </Picker>
         </View>
 
-        {/* YEAR */}
         <View style={[styles.pickerBox, { borderColor: border, marginRight: 0 }]}>
           <Picker
             selectedValue={selectedYear}

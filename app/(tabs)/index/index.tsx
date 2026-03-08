@@ -1,7 +1,7 @@
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { useColorScheme } from "@/hooks/use-color-scheme";
-import { useThemeColors } from "../../../hooks/use-theme-colors";
+import { useThemeColors } from "@/hooks/use-theme-colors";
 import { getTasks } from "@/lib/database";
 import { FocusSessionSnapshot, loadFocusSessionSnapshot } from "@/lib/focus-session-storage";
 import { emitTabBarScroll } from "@/lib/tab-bar-scroll";
@@ -63,7 +63,6 @@ export default function HomeScreen() {
   const [focusSnapshot, setFocusSnapshot] = useState<FocusSessionSnapshot | null>(null);
   const headerHeight = insets.top + 8;
 
-  // Theme colours (unified)
   const colors = useThemeColors();
   const background = colors.background;
   const card = colors.surface;
@@ -88,7 +87,7 @@ export default function HomeScreen() {
       setTasks(Array.isArray(dbTasks) ? (dbTasks as Task[]) : []);
       setError(null);
     } catch (err: any) {
-      console.error("Failed to load tasks", err);
+      if (__DEV__) console.error("Failed to load tasks", err);
       setError("Couldn't load tasks. Pull to refresh or restart.");
       setTasks([]);
     } finally {
@@ -129,7 +128,6 @@ export default function HomeScreen() {
     return diff / (1000 * 60 * 60 * 24);
   }, [today]);
 
-  // Auto-computed tracking stats
   const stats = useMemo(() => {
     const total = tasks.length;
     const completed = tasks.filter((t) => !!t.completed).length;
@@ -158,7 +156,6 @@ export default function HomeScreen() {
     };
   }, [tasks, daysDiff, dateFromTask]);
 
-  // Overdue + time-based analytics
   const overdueTasks = useMemo(
     () =>
       tasks

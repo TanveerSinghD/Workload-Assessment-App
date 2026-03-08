@@ -35,7 +35,7 @@ export async function updateAvailabilityWithFeedback(
 
     return true;
   } catch (error) {
-    console.error("Failed to update availability", error);
+    if (__DEV__) console.error("Failed to update availability", error);
     Alert.alert(errorTitle, errorBody);
     return false;
   }

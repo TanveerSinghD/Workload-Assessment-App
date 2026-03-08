@@ -1,6 +1,6 @@
 import { getTasks } from "@/lib/database";
 import { useColorScheme } from "@/hooks/use-color-scheme";
-import { useThemeColors } from "../../../hooks/use-theme-colors";
+import { useThemeColors } from "@/hooks/use-theme-colors";
 import { updateAvailabilityWithFeedback } from "@/utils/availabilityFeedback";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
@@ -48,7 +48,6 @@ export default function CalendarScreen() {
 
   const [showYearPicker, setShowYearPicker] = useState(false);
   const [showMonthPicker, setShowMonthPicker] = useState(false);
-  // Accordion: today is open by default, rest are collapsed
   const [expandedDays, setExpandedDays] = useState<Set<string>>(() => new Set([new Date().toISOString().split("T")[0]]));
   const accordionAnims = useRef<Record<string, Animated.Value>>({});
   const headerHeight = insets.top + 8;
@@ -67,7 +66,6 @@ export default function CalendarScreen() {
     [today, todayStr]
   );
 
-  // LIVE REFRESH WHEN SCREEN FOCUSES
   const loadTasks = useCallback(async (showSpinner = false) => {
     try {
       if (showSpinner) setRefreshing(true);
@@ -89,7 +87,6 @@ export default function CalendarScreen() {
     "July","August","September","October","November","December",
   ];
 
-  // Difficulty colours
   const difficultyDot = useMemo(
     () => ({
       easy: "#34C759",
@@ -186,12 +183,10 @@ export default function CalendarScreen() {
 
   const currentMonthStr = `${year}-${String(month).padStart(2, "0")}-01`;
 
-  // RESET
   function resetSelected() {
     setSelectedDate(null);
   }
 
-  // Month arrows
   function goPrevMonth() {
     resetSelected();
 
@@ -267,7 +262,6 @@ export default function CalendarScreen() {
           />
         }
       >
-        {/* HEADER */}
         <View style={styles.headerRow}>
           <TouchableOpacity onPress={goPrevMonth} style={styles.arrowButton} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
             <Ionicons name="chevron-back" size={22} color={colors.accentBlue} />
@@ -292,7 +286,6 @@ export default function CalendarScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* QUICK JUMPS */}
         <View style={styles.quickRow}>
           <TouchableOpacity
             onPress={() => {
@@ -316,7 +309,6 @@ export default function CalendarScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* FILTERS */}
         <View style={styles.filterSection}>
           <Text style={[styles.filterLabel, { color: colors.textSecondary }]}>Priority</Text>
           <View style={styles.filterRow}>
@@ -387,7 +379,6 @@ export default function CalendarScreen() {
           )}
         </View>
 
-        {/* CALENDAR */}
         <Calendar
           key={currentMonthStr}
           current={currentMonthStr}
@@ -414,7 +405,6 @@ export default function CalendarScreen() {
           }}
         />
 
-        {/* TASK LIST / AGENDA */}
         <View style={styles.taskListContainer}>
           <View style={styles.agendaHeaderRow}>
             <Text style={[styles.agendaTitle, { color: colors.textPrimary }]}>
@@ -439,7 +429,6 @@ export default function CalendarScreen() {
               const isOverdue = day.date < todayStr;
               const isExpanded = expandedDays.has(day.date);
 
-              // Lazily create an Animated.Value per day
               if (!accordionAnims.current[day.date]) {
                 accordionAnims.current[day.date] = new Animated.Value(isExpanded ? 1 : 0);
               }
@@ -478,7 +467,6 @@ export default function CalendarScreen() {
                     },
                   ]}
                 >
-                  {/* Tappable header row — toggles the accordion */}
                   <TouchableOpacity
                     style={styles.agendaDayHeader}
                     onPress={toggleDay}
@@ -498,7 +486,6 @@ export default function CalendarScreen() {
                     </Animated.View>
                   </TouchableOpacity>
 
-                  {/* Collapsible task list */}
                   {isExpanded && (
                     <View style={{ marginTop: 6 }}>
                       {day.items.map((item) => (
@@ -578,8 +565,6 @@ export default function CalendarScreen() {
         </View>
       </ScrollView>
 
-      {/* PICKERS */}
-      {/* YEAR PICKER */}
       <Modal visible={showYearPicker} transparent animationType="fade">
         <TouchableOpacity style={styles.modalOverlay} onPress={() => setShowYearPicker(false)}>
           <TouchableOpacity
@@ -602,7 +587,6 @@ export default function CalendarScreen() {
         </TouchableOpacity>
       </Modal>
 
-      {/* MONTH PICKER */}
       <Modal visible={showMonthPicker} transparent animationType="fade">
         <TouchableOpacity style={styles.modalOverlay} onPress={() => setShowMonthPicker(false)}>
           <TouchableOpacity
@@ -628,8 +612,6 @@ export default function CalendarScreen() {
     </SafeAreaView>
   );
 }
-
-/* --------------------- STYLES ----------------------- */
 
 const styles = StyleSheet.create({
   container: {

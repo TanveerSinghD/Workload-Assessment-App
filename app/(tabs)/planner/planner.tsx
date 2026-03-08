@@ -586,7 +586,7 @@ export default function PlannerScreen() {
       setError(null);
       setLastRefresh(new Date());
     } catch (err) {
-      console.error("Failed to load tasks", err);
+      if (__DEV__) console.error("Failed to load tasks", err);
       setError("Couldn't load tasks. Try reopening the app.");
       setTasks([]);
     } finally {
@@ -594,7 +594,6 @@ export default function PlannerScreen() {
     }
   }, []);
 
-  // Refresh whenever the tab is focused
   useFocusEffect(
     useCallback(() => {
       loadTasks(false);
@@ -839,7 +838,7 @@ export default function PlannerScreen() {
                   await loadTasks();
                   Alert.alert("Follow-up added", "We'll remind you to review this task.");
                 } catch (error) {
-                  console.error("Failed to add follow-up task", error);
+                  if (__DEV__) console.error("Failed to add follow-up task", error);
                   Alert.alert("Couldn't add follow-up", "Please try again.");
                 }
               },
@@ -1513,7 +1512,7 @@ export default function PlannerScreen() {
         });
       }
     } catch (error) {
-      console.error("[assistant_engine] Failed to respond:", error);
+      if (__DEV__) console.error("[assistant_engine] Failed to respond:", error);
       setChatMessages((prev) => [
         ...prev,
         {
@@ -1966,6 +1965,26 @@ export default function PlannerScreen() {
           refreshing={refreshing}
           onRefresh={() => loadTasks(true)}
         />
+
+        {!chatOpen ? (
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Open planner chat"
+            activeOpacity={0.9}
+            onPress={openChat}
+            style={[
+              styles.plannerChatFab,
+              {
+                bottom: insets.bottom + 98,
+                backgroundColor: dark ? "#0A84FF" : "#0A84FF",
+                borderColor: dark ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.92)",
+              },
+            ]}
+          >
+            <Ionicons name="chatbubbles" size={18} color="#fff" />
+            <Text style={styles.plannerChatFabText}>Chat</Text>
+          </TouchableOpacity>
+        ) : null}
 
         {chatOpen && (
           <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
@@ -2494,6 +2513,29 @@ const styles = StyleSheet.create({
   chatPromptText: {
     fontSize: 13,
     fontWeight: "700",
+  },
+  plannerChatFab: {
+    position: "absolute",
+    right: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    paddingHorizontal: 14,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 2,
+    zIndex: 40,
+    shadowColor: "#0A84FF",
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 7 },
+    elevation: 11,
+  },
+  plannerChatFabText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "800",
+    letterSpacing: 0.2,
   },
   chatOverlay: {
     position: "absolute",

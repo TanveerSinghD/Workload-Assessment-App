@@ -70,9 +70,6 @@ export default function EditTaskScreen() {
   const text = dark ? "#FFFFFF" : "#000000";
   const border = dark ? "#3A3A3C" : "#C7C7CC";
 
-  // -------------------------
-  // State
-  // -------------------------
   const [task, setTask] = useState<Task | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -87,9 +84,6 @@ export default function EditTaskScreen() {
   const [difficulty, setDifficulty] = useState<Difficulty>("easy");
   const [hasChanges, setHasChanges] = useState(false);
 
-  // -------------------------
-  // Date options
-  // -------------------------
   const days = useMemo(() => Array.from({ length: 31 }, (_, i) => String(i + 1)), []);
 
   const years = useMemo(() => {
@@ -107,9 +101,6 @@ export default function EditTaskScreen() {
     [text]
   );
 
-  // -------------------------
-  // Load Task
-  // -------------------------
   useEffect(() => {
     let isMounted = true;
     (async () => {
@@ -132,7 +123,7 @@ export default function EditTaskScreen() {
           setSelectedYear(parsedDate.year);
         }
       } catch (error) {
-        console.error("Failed to load task", error);
+        if (__DEV__) console.error("Failed to load task", error);
       } finally {
         if (isMounted) setIsLoading(false);
       }
@@ -145,9 +136,6 @@ export default function EditTaskScreen() {
 
   const markChanged = () => setHasChanges(true);
 
-  // -------------------------
-  // Save Task
-  // -------------------------
   const onSave = async () => {
     if (!hasChanges) return;
     const dueDate = formatDueDate(selectedYear, selectedMonth, selectedDay);
@@ -174,14 +162,11 @@ export default function EditTaskScreen() {
         [{ text: "OK", onPress: () => router.back() }]
       );
     } catch (error) {
-      console.error("Failed to save task", error);
+      if (__DEV__) console.error("Failed to save task", error);
       Alert.alert("Save failed", "Couldn't update this task. Please try again.");
     }
   };
 
-  // -------------------------
-  // Delete Task
-  // -------------------------
   const onDelete = () => {
     Alert.alert(
       "Delete Task",
@@ -199,7 +184,7 @@ export default function EditTaskScreen() {
               await deleteTask(taskId);
               router.back();
             } catch (error) {
-              console.error("Failed to delete task", error);
+              if (__DEV__) console.error("Failed to delete task", error);
               Alert.alert("Delete failed", "Please sign in again and try deleting.");
             }
           },

@@ -43,26 +43,20 @@ export default function TabLayout() {
   const tabBarBottom = Math.max(10, insets.bottom + 6);
   const tabBarHeight = 68 + Math.min(insets.bottom, 10);
 
-  // Sliding bubble animation
   const sliderX = useRef(new Animated.Value(0)).current;
 
-  // Hide/show nav bar animation
   const tabBarTranslateY = useRef(new Animated.Value(0)).current;
   const tabBarOpacity = useRef(new Animated.Value(1)).current;
   const tabBarHiddenRef = useRef(false);
 
-  // First-time long-press hint animation
   const [showLongPressHint, setShowLongPressHint] = useState(false);
   const longPressHintOpacity = useRef(new Animated.Value(0)).current;
   const hintTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Task badges
   const [taskBadge, setTaskBadge] = useState({ open: 0, overdue: 0 });
 
-  // Flag to suppress tab press after a long-press quick action
   const longPressTriggered = useRef(false);
 
-  // Width of entire tab bar for bubble + drag
   const tabWidth = useRef(0);
   const routePaths = useMemo(() => navItems.map((item) => item.routePath), []);
 
@@ -138,7 +132,6 @@ export default function TabLayout() {
 
   useEffect(() => {
     syncToRoute(true);
-    // Show tab bar whenever route changes.
     setTabBarHidden(false);
   }, [setTabBarHidden, syncToRoute]);
 
@@ -216,7 +209,7 @@ export default function TabLayout() {
 
       setTaskBadge({ open, overdue });
     } catch (error) {
-      console.error("Failed to load tab badge stats", error);
+      if (__DEV__) console.error("Failed to load tab badge stats", error);
       setTaskBadge({ open: 0, overdue: 0 });
     }
   }, []);
@@ -256,7 +249,7 @@ export default function TabLayout() {
           });
         }, 4600);
       } catch (error) {
-        console.warn("Failed to load nav hint state", error);
+        if (__DEV__) console.warn("Failed to load nav hint state", error);
       }
     };
 

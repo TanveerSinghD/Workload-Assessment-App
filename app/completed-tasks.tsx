@@ -1,6 +1,6 @@
 import { getTasks } from "@/lib/database";
 import { useColorScheme } from "@/hooks/use-color-scheme";
-import { useThemeColors } from "../hooks/use-theme-colors";
+import { useThemeColors } from "@/hooks/use-theme-colors";
 import { updateAvailabilityWithFeedback } from "@/utils/availabilityFeedback";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";

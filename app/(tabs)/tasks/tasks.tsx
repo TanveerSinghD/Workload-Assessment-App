@@ -7,7 +7,7 @@ import {
 } from "@/lib/database";
 import { emitTabBarScroll } from "@/lib/tab-bar-scroll";
 import { useColorScheme } from "@/hooks/use-color-scheme";
-import { useThemeColors } from "../../../hooks/use-theme-colors";
+import { useThemeColors } from "@/hooks/use-theme-colors";
 import { Ionicons } from "@expo/vector-icons";
 import { useScrollToTop } from "@react-navigation/native";
 import { BlurView } from "expo-blur";
@@ -206,7 +206,7 @@ export default function TasksScreen() {
       const dbTasks = await getTasks();
       setTasks(Array.isArray(dbTasks) ? (dbTasks as Task[]) : []);
     } catch (error) {
-      console.error("Failed to load tasks", error);
+      if (__DEV__) console.error("Failed to load tasks", error);
       setTasks([]);
     } finally {
       if (showSpinner) setRefreshing(false);
@@ -403,7 +403,7 @@ export default function TasksScreen() {
         await duplicateTask(task.id);
         await loadTasks();
       } catch (error) {
-        console.error("Failed to duplicate task", error);
+        if (__DEV__) console.error("Failed to duplicate task", error);
         Alert.alert("Duplicate failed", "Please try duplicating again.");
       }
     },
@@ -425,7 +425,7 @@ export default function TasksScreen() {
                 await deleteTask(task.id);
                 await loadTasks();
               } catch (error) {
-                console.error("Failed to delete task", error);
+                if (__DEV__) console.error("Failed to delete task", error);
                 Alert.alert("Delete failed", "Please retry in a moment.");
               }
             },
@@ -1018,7 +1018,13 @@ export default function TasksScreen() {
             styles.fab,
             {
               backgroundColor: "#007AFF",
-              bottom: insets.bottom + 76,
+              bottom: insets.bottom + 98,
+              borderWidth: 2,
+              borderColor: "rgba(255,255,255,0.88)",
+              shadowOpacity: 0.32,
+              shadowRadius: 10,
+              shadowOffset: { width: 0, height: 6 },
+              elevation: 10,
               transform: [{ scale: pressed ? 0.95 : 1 }],
               opacity: pressed ? 0.92 : 1,
             },

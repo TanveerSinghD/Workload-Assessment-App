@@ -1,10 +1,9 @@
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useAuth } from "@/hooks/useAuth";
-import { useThemeColors } from "../../../hooks/use-theme-colors";
+import { useThemeColors } from "@/hooks/use-theme-colors";
 import { useScrollToTop } from "@react-navigation/native";
 import { router, useFocusEffect } from "expo-router";
 import { BlurView } from "expo-blur";
-import * as Clipboard from "expo-clipboard";
 import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
@@ -20,7 +19,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-import { addTask, deleteAllTasks, deleteCompletedTasks, getTasks } from "@/lib/database";
+import { addTask, deleteAllTasks, deleteCompletedTasks } from "@/lib/database";
 import { getAppLockState } from "@/lib/app-lock-storage";
 import {
   DEFAULT_REMINDER_TIME,
@@ -40,7 +39,6 @@ export default function SettingsScreen() {
   const scrollRef = useRef<ScrollView>(null);
   useScrollToTop(scrollRef);
 
-  // States
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [reminderTime, setReminderTime] = useState<{ hour: number; minute: number }>(DEFAULT_REMINDER_TIME);
   const [loadingReminders, setLoadingReminders] = useState(false);
@@ -50,13 +48,11 @@ export default function SettingsScreen() {
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [tempTime, setTempTime] = useState<{ hour: number; minute: number }>(DEFAULT_REMINDER_TIME);
 
-  // Colors
   const background = colors.background;
   const card = colors.surface;
   const text = colors.textPrimary;
   const subtext = colors.textMuted;
 
-  /* DOUBLE CONFIRM DELETE FUNCTION */
   const clearAllData = () => {
     Alert.alert(
       "Are you sure?",
@@ -67,7 +63,6 @@ export default function SettingsScreen() {
           text: "Continue",
           style: "destructive",
           onPress: () => {
-            // SECOND CONFIRMATION
             Alert.alert(
               "Really delete all tasks?",
               "This action cannot be undone.",
@@ -79,9 +74,9 @@ export default function SettingsScreen() {
                   onPress: async () => {
                     try {
                       await deleteAllTasks();
-                      console.log("All tasks deleted.");
+                      if (__DEV__) console.log("All tasks deleted.");
                     } catch (error) {
-                      console.error("Failed to delete tasks", error);
+                      if (__DEV__) console.error("Failed to delete tasks", error);
                       Alert.alert("Delete failed", "Please try again after signing in.");
                     }
                   },
@@ -96,7 +91,6 @@ export default function SettingsScreen() {
     );
   };
 
-  // Quick seed with dummy data for demos
   const seedDummyTasks = async () => {
     const difficulties = ["easy", "medium", "hard"] as const;
     const subjects = ["Math", "Science", "History", "English", "CS", "Art"];
@@ -117,7 +111,7 @@ export default function SettingsScreen() {
           nouns[Math.floor(Math.random() * nouns.length)]
         } (${subjects[Math.floor(Math.random() * subjects.length)]})`;
         const difficulty = difficulties[Math.floor(Math.random() * difficulties.length)];
-        const dateOffset = Math.floor(Math.random() * 14) - 2; // a mix of overdue + near-term
+        const dateOffset = Math.floor(Math.random() * 14) - 2;
         const due_date = formatDate(dateOffset);
 
         return {
@@ -131,7 +125,7 @@ export default function SettingsScreen() {
       await Promise.all(payload.map((task) => addTask(task)));
       Alert.alert("Dummy tasks added", "10 random tasks were created for you.");
     } catch (err) {
-      console.error("Failed to seed dummy tasks", err);
+      if (__DEV__) console.error("Failed to seed dummy tasks", err);
       Alert.alert("Couldn't add dummy tasks", "Please try again.");
     }
   };
@@ -160,53 +154,6 @@ export default function SettingsScreen() {
     }, [refreshLockState, refreshNotifications])
   );
 
-  const exportTasks = async () => {
-    try {
-      const tasks = await getTasks();
-      const payload = JSON.stringify(tasks, null, 2);
-      await Clipboard.setStringAsync(payload);
-      Alert.alert("Exported", "All tasks copied to clipboard as JSON.");
-    } catch (err) {
-      console.error("Failed to export tasks", err);
-      Alert.alert("Export failed", "Couldn't copy tasks to clipboard.");
-    }
-  };
-
-  const importTasks = async () => {
-    try {
-      const raw = await Clipboard.getStringAsync();
-      if (!raw) {
-        Alert.alert("Nothing to import", "Clipboard is empty.");
-        return;
-      }
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) {
-        Alert.alert("Invalid format", "Clipboard must contain a JSON array of tasks.");
-        return;
-      }
-
-      let imported = 0;
-      for (const item of parsed) {
-        if (!item?.title || !item?.notes || !item?.difficulty) continue;
-        const diff = item.difficulty as "easy" | "medium" | "hard";
-        if (!["easy", "medium", "hard"].includes(diff)) continue;
-
-        await addTask({
-          title: String(item.title),
-          description: String(item.notes),
-          difficulty: diff,
-          due_date: item.due_date ?? null,
-        });
-        imported += 1;
-      }
-
-      Alert.alert("Import complete", `Added ${imported} tasks from clipboard.`);
-    } catch (err) {
-      console.error("Import failed", err);
-      Alert.alert("Import failed", "Couldn't read tasks from clipboard.");
-    }
-  };
-
   const clearCompleted = async () => {
     Alert.alert(
       "Clear completed?",
@@ -221,7 +168,7 @@ export default function SettingsScreen() {
               await deleteCompletedTasks();
               Alert.alert("Done", "Completed tasks were removed.");
             } catch (error) {
-              console.error("Failed to clear completed tasks", error);
+              if (__DEV__) console.error("Failed to clear completed tasks", error);
               Alert.alert("Couldn't clear tasks", "Please sign in again and retry.");
             }
           },
@@ -246,7 +193,7 @@ export default function SettingsScreen() {
               await seedDummyTasks();
               Alert.alert("Reset complete", "Dummy tasks have been reloaded.");
             } catch (error) {
-              console.error("Failed to reset demo data", error);
+              if (__DEV__) console.error("Failed to reset demo data", error);
               Alert.alert("Reset failed", "Please sign in again and retry.");
             }
           },
@@ -277,7 +224,7 @@ export default function SettingsScreen() {
         setNotificationsEnabled(false);
       }
     } catch (error) {
-      console.error("Notification toggle failed", error);
+      if (__DEV__) console.error("Notification toggle failed", error);
       Alert.alert("Notifications error", "We couldn't update reminder settings. Please try again.");
     } finally {
       setLoadingReminders(false);
@@ -308,7 +255,7 @@ export default function SettingsScreen() {
         await saveReminderSettings({ enabled: false, hour: tempTime.hour, minute: tempTime.minute });
       }
     } catch (error) {
-      console.error("Failed to update reminder time", error);
+      if (__DEV__) console.error("Failed to update reminder time", error);
       Alert.alert("Notification error", "We couldn't update the reminder time.");
     } finally {
       setLoadingReminders(false);
@@ -338,7 +285,7 @@ export default function SettingsScreen() {
         Alert.alert("Sent", "A test notification is on its way.");
       }
     } catch (error) {
-      console.error("Failed to send test notification", error);
+      if (__DEV__) console.error("Failed to send test notification", error);
       Alert.alert("Send failed", "Could not send a test notification. Please try again.");
     } finally {
       setSendingTest(false);
@@ -348,7 +295,6 @@ export default function SettingsScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: background }}>
 
-      {/* 🔵 TOP BLUR EFFECT */}
       <BlurView
         intensity={40}
         tint={dark ? "dark" : "light"}
@@ -356,7 +302,6 @@ export default function SettingsScreen() {
         style={styles.blurHeader}
       />
 
-      {/* Smooth fade under blur */}
       <View style={styles.blurFade} pointerEvents="none" />
 
       <ScrollView
@@ -365,10 +310,8 @@ export default function SettingsScreen() {
         contentContainerStyle={{ paddingBottom: 70, paddingTop: 26 }}
       >
 
-        {/* TITLE */}
         <Text style={[styles.title, { color: text }]}></Text>
 
-        {/* ACCOUNT */}
         <View style={[styles.card, { backgroundColor: card }]}>
           <TouchableOpacity
             style={styles.row}
@@ -385,7 +328,6 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* TIME PICKER MODAL */}
         <Modal transparent visible={showTimePicker} animationType="fade" onRequestClose={() => setShowTimePicker(false)}>
           <TouchableOpacity
             activeOpacity={1}
@@ -413,7 +355,6 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </Modal>
 
-        {/* SECURITY — surfaced above notifications to prioritize App Lock; headers removed for cleaner hierarchy */}
         <View style={[styles.card, { backgroundColor: card }]}>
 
           <View style={styles.row}>
@@ -423,10 +364,8 @@ export default function SettingsScreen() {
               onValueChange={async (value) => {
                 if (loadingLock) return;
                 if (value) {
-                  // Turning on: go to PIN setup; don't flip state until success.
                   router.push("/set-pin");
                 } else {
-                  // Turning off: require PIN confirmation.
                   router.push("/disable-app-lock");
                 }
               }}
@@ -446,7 +385,6 @@ export default function SettingsScreen() {
           )}
         </View>
 
-        {/* NOTIFICATIONS */}
         <View style={[styles.card, { backgroundColor: card }]}>
 
           <View style={styles.row}>
@@ -481,7 +419,6 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* NAVIGATION */}
         <View style={[styles.card, { backgroundColor: card }]}>
 
           <TouchableOpacity style={styles.row} onPress={() => router.push("/nav-quick-actions")}>
@@ -490,16 +427,7 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* DATA */}
         <View style={[styles.card, { backgroundColor: card }]}>
-
-          <TouchableOpacity style={styles.row} onPress={exportTasks}>
-            <Text style={[styles.label, { color: text }]}>Export tasks (clipboard JSON)</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.row} onPress={importTasks}>
-            <Text style={[styles.label, { color: text }]}>Import tasks from clipboard</Text>
-          </TouchableOpacity>
 
           <TouchableOpacity style={styles.row} onPress={seedDummyTasks}>
             <Text style={[styles.label, { color: text }]}>Add 10 dummy tasks</Text>
@@ -521,7 +449,6 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* ABOUT */}
         <View style={[styles.card, { backgroundColor: card }]}>
           <TouchableOpacity style={styles.row}>
             <Text style={[styles.label, { color: text }]}>Version</Text>
@@ -576,7 +503,6 @@ const styles = StyleSheet.create({
   label: { fontSize: 16 },
   value: { fontSize: 14, opacity: 0.8 },
 
-  /* Blur header */
   blurHeader: {
     position: "absolute",
     top: 0,
@@ -586,7 +512,6 @@ const styles = StyleSheet.create({
     zIndex: 20,
   },
 
-  /* Smooth fade under blur */
   blurFade: {
     position: "absolute",
     top: 80,

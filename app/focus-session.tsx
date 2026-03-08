@@ -267,7 +267,7 @@ export default function FocusSessionScreen() {
           setRemainingSeconds(selectedMinutes * 60);
         }
       } catch (error) {
-        console.error("Failed to load focus queue", error);
+        if (__DEV__) console.error("Failed to load focus queue", error);
         setQueue([]);
         setCurrentId(null);
       } finally {
@@ -501,7 +501,7 @@ export default function FocusSessionScreen() {
       await loadQueue();
       showToast("Task completed.", "success");
     } catch (error) {
-      console.error("Failed to complete task", error);
+      if (__DEV__) console.error("Failed to complete task", error);
       Alert.alert("Complete failed", "Please try again.");
     }
   }, [currentTask, loadQueue, showToast]);
@@ -534,7 +534,7 @@ export default function FocusSessionScreen() {
         await loadQueue();
         showToast(`Snoozed +${days} day${days === 1 ? "" : "s"}.`, "info");
       } catch (error) {
-        console.error("Failed to snooze task", error);
+        if (__DEV__) console.error("Failed to snooze task", error);
         Alert.alert("Snooze failed", "Please try again.");
       }
     },
@@ -579,7 +579,7 @@ export default function FocusSessionScreen() {
         await loadQueue();
         showToast("Suggested task added.", "success");
       } catch (error) {
-        console.error("Failed to add suggested task", error);
+        if (__DEV__) console.error("Failed to add suggested task", error);
         Alert.alert("Could not add task", "Please try again.");
       } finally {
         setAddingSuggestionKey(null);
