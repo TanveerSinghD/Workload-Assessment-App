@@ -357,10 +357,11 @@ export default function EditTaskScreen() {
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <View style={{ flex: 1 }}>
           <ScrollView
-            scrollEnabled={false}
             bounces={false}
             alwaysBounceVertical={false}
             overScrollMode="never"
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
             contentContainerStyle={{
               paddingHorizontal: 14,
               paddingTop: 14,

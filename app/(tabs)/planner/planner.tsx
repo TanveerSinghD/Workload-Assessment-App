@@ -1582,13 +1582,6 @@ export default function PlannerScreen() {
             ]}
           >
             <View style={styles.heroTopRow}>
-              <View style={styles.badgeRow}>
-                <Text style={[styles.heroBadge, { color: "#0A84FF", borderColor: "#0A84FF" }]}>
-                  Planner
-                </Text>
-                <Text style={[styles.heroBadge, { color: subtle, borderColor: border }]}>Local data</Text>
-              </View>
-
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                 <TouchableOpacity
                   onPress={openChat}
@@ -2416,23 +2409,10 @@ const styles = StyleSheet.create({
   heroTopRow: {
     flexDirection: "row",
     alignItems: "flex-start",
-    justifyContent: "flex-start",
+    justifyContent: "flex-end",
     flexWrap: "wrap",
     columnGap: 10,
     rowGap: 8,
-  },
-  badgeRow: {
-    flexDirection: "row",
-    gap: 8,
-    alignItems: "center",
-  },
-  heroBadge: {
-    fontSize: 13,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: 20,
-    borderWidth: 1,
-    fontWeight: "700",
   },
   refreshBtn: {
     paddingHorizontal: 12,

@@ -1,6 +1,6 @@
 import * as Notifications from "expo-notifications";
-import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
+import * as SecureStore from "@/lib/secure-store";
 
 export type ReminderSettings = {
   enabled: boolean;

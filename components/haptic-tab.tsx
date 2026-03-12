@@ -9,10 +9,11 @@ export function HapticTab(props: BottomTabBarButtonProps) {
   return (
     <PlatformPressable
       {...props}
+      accessibilityRole="tab"
       style={[
         props.style,
         {
-          minHeight: 56,
+          minHeight: 44,
           alignItems: 'center',
           justifyContent: 'center',
           opacity: pressed ? 0.86 : 1,

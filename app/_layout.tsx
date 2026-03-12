@@ -8,7 +8,7 @@ import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AuthProvider, useAuth } from '@/hooks/useAuth';
-import { ThemeOverrideProvider } from '@/hooks/useThemeOverride';
+import { ThemeOverrideProvider, useThemeOverride } from '@/hooks/useThemeOverride';
 import { AppLockGate } from "@/components/app-lock-gate";
 
 export const unstable_settings = {
@@ -16,21 +16,43 @@ export const unstable_settings = {
 };
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
-
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeOverrideProvider>
-        <AuthProvider>
-          <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-            <AppLockGate>
-              <RootNavigator />
-            </AppLockGate>
-            <StatusBar style="auto" />
-          </ThemeProvider>
-        </AuthProvider>
+        <RootLayoutWithTheme />
       </ThemeOverrideProvider>
     </GestureHandlerRootView>
+  );
+}
+
+function RootLayoutWithTheme() {
+  const colorScheme = useColorScheme();
+  const { isReady } = useThemeOverride();
+
+  if (!isReady) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          justifyContent: 'center',
+          alignItems: 'center',
+          backgroundColor: colorScheme === 'dark' ? '#0E1016' : '#F7F8FA',
+        }}
+      >
+        <ActivityIndicator size="large" color={colorScheme === 'dark' ? '#FFF' : '#000'} />
+      </View>
+    );
+  }
+
+  return (
+    <AuthProvider>
+      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <AppLockGate>
+          <RootNavigator />
+        </AppLockGate>
+        <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
+      </ThemeProvider>
+    </AuthProvider>
   );
 }
 
@@ -75,6 +97,7 @@ function RootNavigator() {
       <Stack.Screen name="disable-app-lock" options={{ title: "Disable App Lock", headerBackTitle: "" }} />
       <Stack.Screen name="change-pin" options={{ title: "Change PIN", headerBackTitle: "" }} />
       <Stack.Screen name="account" options={{ title: "Account", headerBackTitle: "" }} />
+      <Stack.Screen name="theme-settings" options={{ title: "Theme", headerBackTitle: "" }} />
       <Stack.Screen name="plan-section" options={{ title: "", headerBackTitle: "" }} />
       <Stack.Screen name="focus-session" options={{ headerShown: false, title: "Focus Session", headerBackTitle: "" }} />
       <Stack.Screen name="modal" options={{ presentation: "modal", title: "Modal", headerBackTitle: "" }} />

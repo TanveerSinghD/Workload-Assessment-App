@@ -2,7 +2,6 @@ import { BottomTabBarButtonProps } from "@react-navigation/bottom-tabs";
 import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
-import * as SecureStore from "expo-secure-store";
 import { Href, Stack, Tabs, usePathname, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -18,30 +17,38 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { HapticTab } from "@/components/haptic-tab";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { accentThemes, hexToRgba } from "@/constants/accent-theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useNavQuickActions } from "@/hooks/use-nav-quick-actions";
+import { useThemeOverride } from "@/hooks/useThemeOverride";
 import { getTasks } from "@/lib/database";
 import { DEFAULT_NAV_QUICK_ACTIONS, NavItemId, executeNavQuickAction, navItems } from "@/lib/nav-config";
 import { loadNavQuickActions } from "@/lib/nav-quick-actions-store";
-import { TAB_BAR_SCROLL_EVENT, TabBarScrollPayload } from "@/lib/tab-bar-scroll";
+import * as SecureStore from "@/lib/secure-store";
+import { TAB_BAR_SCROLL_EVENT, TabBarScrollPayload, emitScrollToTop } from "@/lib/tab-bar-scroll";
 
 const TAB_COUNT = navItems.length;
-const BUBBLE_WIDTH = 60;
+const BUBBLE_WIDTH = 52;
+const BUBBLE_HEIGHT = 40;
+const BUBBLE_TOP = 7;
+const BUBBLE_EDGE_INSET = 7;
 const HALF_BUBBLE = BUBBLE_WIDTH / 2;
 const LONG_PRESS_HINT_KEY = "nav_long_press_hint_seen_v2";
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
   const dark = colorScheme === "dark";
+  const { accentTheme } = useThemeOverride();
   const router = useRouter();
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
+  const selectedAccent = accentThemes[accentTheme];
 
   const blurTint = dark ? "systemChromeMaterialDark" : "systemChromeMaterialLight";
   const { mapping: quickActions, loading: quickActionsLoading } = useNavQuickActions();
 
   const tabBarBottom = Math.max(10, insets.bottom + 6);
-  const tabBarHeight = 68 + Math.min(insets.bottom, 10);
+  const tabBarHeight = 56;
 
   const sliderX = useRef(new Animated.Value(0)).current;
 
@@ -56,6 +63,13 @@ export default function TabLayout() {
   const [taskBadge, setTaskBadge] = useState({ open: 0, overdue: 0 });
 
   const longPressTriggered = useRef(false);
+  const dragEdgeRef = useRef(false);
+
+  const badgeScale = useRef(new Animated.Value(1)).current;
+  const prevBadgeCount = useRef(0);
+
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
 
   const tabWidth = useRef(0);
   const routePaths = useMemo(() => navItems.map((item) => item.routePath), []);
@@ -70,12 +84,18 @@ export default function TabLayout() {
     [routePaths]
   );
 
+  const getBubbleX = useCallback((index: number, totalWidth: number) => {
+    const itemWidth = totalWidth / TAB_COUNT;
+    const rawX = index * itemWidth + itemWidth / 2 - HALF_BUBBLE;
+    const minX = BUBBLE_EDGE_INSET;
+    const maxX = Math.max(minX, totalWidth - BUBBLE_WIDTH - BUBBLE_EDGE_INSET);
+    return Math.max(minX, Math.min(maxX, rawX));
+  }, []);
+
   const animateToIndex = useCallback(
     (index: number, animated = true) => {
       if (tabWidth.current === 0) return;
-
-      const itemWidth = tabWidth.current / TAB_COUNT;
-      const targetX = index * itemWidth + itemWidth / 2 - HALF_BUBBLE;
+      const targetX = getBubbleX(index, tabWidth.current);
 
       if (!animated) {
         sliderX.setValue(targetX);
@@ -89,7 +109,7 @@ export default function TabLayout() {
         bounciness: 4,
       }).start();
     },
-    [sliderX]
+    [getBubbleX, sliderX]
   );
 
   const setTabBarHidden = useCallback(
@@ -139,14 +159,27 @@ export default function TabLayout() {
     (locationX: number, release = false) => {
       if (!tabWidth.current) return;
       const itemWidth = tabWidth.current / TAB_COUNT;
-      const clamped = Math.max(0, Math.min(TAB_COUNT - 1, Math.floor(locationX / itemWidth)));
-      sliderX.setValue(clamped * itemWidth + itemWidth / 2 - HALF_BUBBLE);
+      const rawIndex = Math.floor(locationX / itemWidth);
+      const clamped = Math.max(0, Math.min(TAB_COUNT - 1, rawIndex));
+
+      // Edge bounce haptic when dragging past first/last tab
+      if ((rawIndex < 0 || rawIndex >= TAB_COUNT) && !dragEdgeRef.current) {
+        dragEdgeRef.current = true;
+        if (process.env.EXPO_OS === "ios") {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid);
+        }
+      } else if (rawIndex >= 0 && rawIndex < TAB_COUNT) {
+        dragEdgeRef.current = false;
+      }
+
+      sliderX.setValue(getBubbleX(clamped, tabWidth.current));
       if (release) {
-        const href = (`/(tabs)${routePaths[clamped]}`) as Href;
+        dragEdgeRef.current = false;
+        const href = `/(tabs)${routePaths[clamped]}` as Href;
         router.navigate(href);
       }
     },
-    [routePaths, router, sliderX]
+    [getBubbleX, routePaths, router, sliderX]
   );
 
   const handleLongPress = useCallback(
@@ -179,6 +212,13 @@ export default function TabLayout() {
               longPressTriggered.current = false;
               return;
             }
+
+            // Scroll-to-top when tapping the already-active tab
+            const normalized = normalizePath(pathnameRef.current);
+            if (routePaths[index] === normalized) {
+              emitScrollToTop(navId);
+            }
+
             animateToIndex(index);
             props.onPress?.(e);
           }}
@@ -187,7 +227,7 @@ export default function TabLayout() {
       TabButton.displayName = `TabButton-${navId}`;
       return TabButton;
     },
-    [animateToIndex, handleLongPress]
+    [animateToIndex, handleLongPress, normalizePath, routePaths]
   );
 
   const loadTaskBadge = useCallback(async () => {
@@ -222,6 +262,21 @@ export default function TabLayout() {
     const id = setInterval(loadTaskBadge, 60_000);
     return () => clearInterval(id);
   }, [loadTaskBadge]);
+
+  const tasksBadgeCount = taskBadge.overdue > 0 ? taskBadge.overdue : taskBadge.open;
+
+  useEffect(() => {
+    if (tasksBadgeCount !== prevBadgeCount.current && tasksBadgeCount > 0) {
+      badgeScale.setValue(0.3);
+      Animated.spring(badgeScale, {
+        toValue: 1,
+        useNativeDriver: true,
+        speed: 12,
+        bounciness: 15,
+      }).start();
+    }
+    prevBadgeCount.current = tasksBadgeCount;
+  }, [tasksBadgeCount, badgeScale]);
 
   useEffect(() => {
     let active = true;
@@ -293,8 +348,11 @@ export default function TabLayout() {
     return () => listener.remove();
   }, [setTabBarHidden]);
 
-  const tasksBadgeCount = taskBadge.overdue > 0 ? taskBadge.overdue : taskBadge.open;
-  const tasksBadgeColor = taskBadge.overdue > 0 ? "#FF453A" : "#0A84FF";
+  const selectedTintColor = dark ? selectedAccent.darkColor : selectedAccent.color;
+  const activeBubbleColor = dark
+    ? hexToRgba(selectedAccent.darkColor, 0.28)
+    : hexToRgba(selectedAccent.color, 0.14);
+  const tasksBadgeColor = taskBadge.overdue > 0 ? "#FF453A" : selectedTintColor;
 
   return (
     <View style={styles.root}>
@@ -303,11 +361,12 @@ export default function TabLayout() {
         screenOptions={{
           headerShown: false,
           tabBarHideOnKeyboard: true,
-          tabBarActiveTintColor: dark ? "#84BBFF" : "#0A84FF",
+          tabBarActiveTintColor: selectedTintColor,
           tabBarInactiveTintColor: dark ? "#A2ABB7" : "#737A84",
-          tabBarLabelPosition: "below-icon",
+          tabBarShowLabel: false,
           tabBarItemStyle: {
-            paddingVertical: 2,
+            justifyContent: "center",
+            alignItems: "center",
           },
 
           tabBarBackground: () => (
@@ -343,7 +402,7 @@ export default function TabLayout() {
                 style={[
                   styles.activeBubble,
                   {
-                    backgroundColor: dark ? "rgba(255,255,255,0.18)" : "rgba(10,132,255,0.12)",
+                    backgroundColor: activeBubbleColor,
                     transform: [{ translateX: sliderX }],
                   },
                 ]}
@@ -356,7 +415,7 @@ export default function TabLayout() {
             bottom: tabBarBottom,
             marginHorizontal: 14,
             height: tabBarHeight,
-            borderRadius: 36,
+            borderRadius: 28,
             backgroundColor: "transparent",
             borderWidth: 0,
             shadowColor: "#000",
@@ -364,8 +423,8 @@ export default function TabLayout() {
             shadowRadius: dark ? 16 : 12,
             shadowOffset: { width: 0, height: 7 },
             elevation: dark ? 14 : 9,
-            paddingBottom: Math.max(6, insets.bottom > 0 ? 8 : 6),
-            paddingTop: 6,
+            paddingBottom: 0,
+            paddingTop: 0,
             borderTopWidth: 0,
             overflow: "hidden",
             transform: [{ translateY: tabBarTranslateY }],
@@ -383,11 +442,6 @@ export default function TabLayout() {
                 item.id === "tasks"
                   ? `Tasks tab, ${taskBadge.overdue} overdue, ${taskBadge.open} open`
                   : `${item.label} tab`,
-              tabBarLabel: ({ focused, color }) => (
-                <Text style={[styles.tabLabel, { color, fontWeight: focused ? "800" : "600" }]} numberOfLines={1}>
-                  {item.label}
-                </Text>
-              ),
               tabBarIcon: ({ color, focused }) => {
                 const showBadge = item.id === "tasks" && tasksBadgeCount > 0;
                 return (
@@ -404,9 +458,19 @@ export default function TabLayout() {
                     </View>
 
                     {showBadge ? (
-                      <View style={[styles.badge, { backgroundColor: tasksBadgeColor }]}> 
-                        <Text style={styles.badgeText}>{tasksBadgeCount > 99 ? "99+" : String(tasksBadgeCount)}</Text>
-                      </View>
+                      <Animated.View
+                        style={[
+                          styles.badge,
+                          {
+                            backgroundColor: tasksBadgeColor,
+                            transform: [{ scale: badgeScale }],
+                          },
+                        ]}
+                      >
+                        <Text style={styles.badgeText}>
+                          {tasksBadgeCount > 99 ? "99+" : String(tasksBadgeCount)}
+                        </Text>
+                      </Animated.View>
                     ) : null}
                   </View>
                 );
@@ -441,7 +505,7 @@ export default function TabLayout() {
             }}
             style={styles.quickHintInner}
           >
-            <IoniconsHint dark={dark} />
+            <IoniconsHint dark={dark} selectedTintColor={selectedTintColor} />
             <Text style={[styles.quickHintText, { color: dark ? "#E6EBF2" : "#1F2733" }]}>Long press tabs for shortcuts</Text>
           </Pressable>
         </Animated.View>
@@ -450,15 +514,15 @@ export default function TabLayout() {
   );
 }
 
-function IoniconsHint({ dark }: { dark: boolean }) {
+function IoniconsHint({ dark, selectedTintColor }: { dark: boolean; selectedTintColor: string }) {
   return (
     <View
       style={[
         styles.quickHintIcon,
-        { backgroundColor: dark ? "rgba(255,255,255,0.14)" : "rgba(10,132,255,0.14)" },
+        { backgroundColor: dark ? "rgba(255,255,255,0.14)" : hexToRgba(selectedTintColor, 0.14) },
       ]}
     >
-      <Text style={[styles.quickHintIconText, { color: dark ? "#E6EBF2" : "#0A84FF" }]}>LP</Text>
+      <Text style={[styles.quickHintIconText, { color: dark ? "#E6EBF2" : selectedTintColor }]}>LP</Text>
     </View>
   );
 }
@@ -469,7 +533,7 @@ const styles = StyleSheet.create({
   },
   tabBarBackground: {
     flex: 1,
-    borderRadius: 36,
+    borderRadius: 28,
     overflow: "hidden",
     backgroundColor: "transparent",
     borderWidth: 1,
@@ -477,24 +541,20 @@ const styles = StyleSheet.create({
   },
   activeBubble: {
     position: "absolute",
-    top: 7,
+    top: BUBBLE_TOP,
     width: BUBBLE_WIDTH,
-    height: 52,
-    borderRadius: 18,
-  },
-  tabLabel: {
-    fontSize: 12,
-    marginTop: -2,
+    height: BUBBLE_HEIGHT,
+    borderRadius: 16,
   },
   iconWrap: {
-    width: 42,
-    minHeight: 34,
+    width: 44,
+    minHeight: 35,
     alignItems: "center",
     justifyContent: "center",
   },
   activeIndicator: {
     position: "absolute",
-    top: 0,
+    top: 1,
     width: 16,
     height: 3,
     borderRadius: 2,

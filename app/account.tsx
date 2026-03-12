@@ -118,6 +118,7 @@ export default function AccountScreen() {
               missingPin={missingPin}
               onUnlock={handleUnlock}
               onResetPin={handleResetPin}
+              onForgotPin={handleResetPin}
             />
           )}
           {checkingLock && (

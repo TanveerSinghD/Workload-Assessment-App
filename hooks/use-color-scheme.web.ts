@@ -1,21 +1,16 @@
-import { useEffect, useState } from 'react';
-import { useColorScheme as useRNColorScheme } from 'react-native';
+import { useEffect } from 'react';
+import { useThemeOverride } from './useThemeOverride';
 
-/**
- * To support static rendering, this value needs to be re-calculated on the client side for web
- */
 export function useColorScheme() {
-  const [hasHydrated, setHasHydrated] = useState(false);
+  const { themeOverride } = useThemeOverride();
 
   useEffect(() => {
-    setHasHydrated(true);
-  }, []);
+    if (typeof document === 'undefined') return;
+    const mode = themeOverride ?? 'light';
+    document.documentElement.style.colorScheme = mode;
+    document.documentElement.style.backgroundColor = mode === 'dark' ? '#0E1016' : '#F7F8FA';
+    document.body.style.backgroundColor = mode === 'dark' ? '#0E1016' : '#F7F8FA';
+  }, [themeOverride]);
 
-  const colorScheme = useRNColorScheme();
-
-  if (hasHydrated) {
-    return colorScheme;
-  }
-
-  return 'light';
+  return themeOverride ?? 'light';
 }
